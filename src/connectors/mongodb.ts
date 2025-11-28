@@ -50,48 +50,48 @@ export class MongoDBConnector {
     return this.getDatabase().collection(collectionName);
   }
 
-  async find(collectionName: string, filter: any = {}, options: any = {}): Promise<any[]> {
+  async find(collectionName: string, filter: Record<string, unknown> = {}, options: Record<string, unknown> = {}): Promise<unknown[]> {
     const collection = this.getCollection(collectionName);
     const cursor = collection.find(filter, options);
     return await cursor.toArray();
   }
 
-  async findOne(collectionName: string, filter: any = {}, options: any = {}): Promise<any | null> {
+  async findOne(collectionName: string, filter: Record<string, unknown> = {}, options: Record<string, unknown> = {}): Promise<unknown | null> {
     const collection = this.getCollection(collectionName);
     return await collection.findOne(filter, options);
   }
 
-  async insertOne(collectionName: string, document: any): Promise<any> {
+  async insertOne(collectionName: string, document: Record<string, unknown>): Promise<unknown> {
     const collection = this.getCollection(collectionName);
     return await collection.insertOne(document);
   }
 
-  async insertMany(collectionName: string, documents: any[]): Promise<any> {
+  async insertMany(collectionName: string, documents: Record<string, unknown>[]): Promise<unknown> {
     const collection = this.getCollection(collectionName);
     return await collection.insertMany(documents);
   }
 
-  async updateOne(collectionName: string, filter: any, update: any): Promise<any> {
+  async updateOne(collectionName: string, filter: Record<string, unknown>, update: Record<string, unknown>): Promise<unknown> {
     const collection = this.getCollection(collectionName);
     return await collection.updateOne(filter, update);
   }
 
-  async updateMany(collectionName: string, filter: any, update: any): Promise<any> {
+  async updateMany(collectionName: string, filter: Record<string, unknown>, update: Record<string, unknown>): Promise<unknown> {
     const collection = this.getCollection(collectionName);
     return await collection.updateMany(filter, update);
   }
 
-  async deleteOne(collectionName: string, filter: any): Promise<any> {
+  async deleteOne(collectionName: string, filter: Record<string, unknown>): Promise<unknown> {
     const collection = this.getCollection(collectionName);
     return await collection.deleteOne(filter);
   }
 
-  async deleteMany(collectionName: string, filter: any): Promise<any> {
+  async deleteMany(collectionName: string, filter: Record<string, unknown>): Promise<unknown> {
     const collection = this.getCollection(collectionName);
     return await collection.deleteMany(filter);
   }
 
-  async countDocuments(collectionName: string, filter: any = {}): Promise<number> {
+  async countDocuments(collectionName: string, filter: Record<string, unknown> = {}): Promise<number> {
     const collection = this.getCollection(collectionName);
     return await collection.countDocuments(filter);
   }

@@ -814,12 +814,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request: CallToolRequest)
         }
         const { collection, filter = {}, limit, skip, sort } = args as {
           collection: string;
-          filter?: any;
+          filter?: Record<string, unknown>;
           limit?: number;
           skip?: number;
-          sort?: any;
+          sort?: Record<string, unknown>;
         };
-        const options: any = {};
+        const options: Record<string, unknown> = {};
         if (limit) options.limit = limit;
         if (skip) options.skip = skip;
         if (sort) options.sort = sort;
@@ -838,7 +838,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request: CallToolRequest)
         if (!mongodbConnector) {
           throw new Error('MongoDB 未连接，请先使用 mongodb_connect 连接数据库');
         }
-        const { collection, filter = {} } = args as { collection: string; filter?: any };
+        const { collection, filter = {} } = args as { collection: string; filter?: Record<string, unknown> };
         const result = await mongodbConnector.findOne(collection, filter);
         return {
           content: [
@@ -860,7 +860,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request: CallToolRequest)
             `允许的操作：${securityManager.getModeDescription()}`
           );
         }
-        const { collection, document } = args as { collection: string; document: any };
+        const { collection, document } = args as { collection: string; document: Record<string, unknown> };
         const result = await mongodbConnector.insertOne(collection, document);
         return {
           content: [
@@ -882,7 +882,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request: CallToolRequest)
             `允许的操作：${securityManager.getModeDescription()}`
           );
         }
-        const { collection, documents } = args as { collection: string; documents: any[] };
+        const { collection, documents } = args as { collection: string; documents: Record<string, unknown>[] };
         const result = await mongodbConnector.insertMany(collection, documents);
         return {
           content: [
@@ -906,8 +906,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request: CallToolRequest)
         }
         const { collection, filter, update } = args as {
           collection: string;
-          filter: any;
-          update: any;
+          filter: Record<string, unknown>;
+          update: Record<string, unknown>;
         };
         const result = await mongodbConnector.updateOne(collection, filter, update);
         return {
@@ -930,7 +930,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request: CallToolRequest)
             `允许的操作：${securityManager.getModeDescription()}`
           );
         }
-        const { collection, filter } = args as { collection: string; filter: any };
+        const { collection, filter } = args as { collection: string; filter: Record<string, unknown> };
         const result = await mongodbConnector.deleteOne(collection, filter);
         return {
           content: [
@@ -946,7 +946,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request: CallToolRequest)
         if (!mongodbConnector) {
           throw new Error('MongoDB 未连接，请先使用 mongodb_connect 连接数据库');
         }
-        const { collection, filter = {} } = args as { collection: string; filter?: any };
+        const { collection, filter = {} } = args as { collection: string; filter?: Record<string, unknown> };
         const count = await mongodbConnector.countDocuments(collection, filter);
         return {
           content: [
