@@ -564,7 +564,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request: CallToolRequest)
             `允许的操作：${securityManager.getModeDescription()}`
           );
         }
-        const { table, data } = args as { table: string; data: Record<string, any> };
+        const { table, data } = args as { table: string; data: Record<string, unknown> };
         const columns = Object.keys(data);
         const values = Object.values(data);
         const placeholders = columns.map(() => '?').join(', ');
@@ -592,8 +592,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request: CallToolRequest)
         }
         const { table, data, where } = args as {
           table: string;
-          data: Record<string, any>;
-          where: Record<string, any>;
+          data: Record<string, unknown>;
+          where: Record<string, unknown>;
         };
         const setClause = Object.keys(data)
           .map((key) => `${key} = ?`)
@@ -624,7 +624,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request: CallToolRequest)
             `允许的操作：${securityManager.getModeDescription()}`
           );
         }
-        const { table, where } = args as { table: string; where: Record<string, any> };
+        const { table, where } = args as { table: string; where: Record<string, unknown> };
         const whereClause = Object.keys(where)
           .map((key) => `${key} = ?`)
           .join(' AND ');
