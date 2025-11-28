@@ -2,12 +2,7 @@
 
 一个 Model Context Protocol (MCP) 服务器，用于连接和查询 MySQL、Redis 和 MongoDB 数据库。
 
-## 使用截图
-
-> **注意**: 请将截图文件放在 `screenshots/` 目录下：
-> - `redis-query-example.png` - Redis 查询示例
-> - `mysql-statistics-example.png` - MySQL 统计查询示例  
-> - `mongodb-count-example.png` - MongoDB 统计查询示例
+## 使用效果截图
 
 ### Redis 查询示例
 
