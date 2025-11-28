@@ -1,0 +1,30 @@
+{
+  "databases": {
+    "mysql": {
+      "host": "localhost",
+      "port": 3306,
+      "user": "root",
+      "password": "your_password",
+      "database": "mydb",
+      "pool": {
+        "min": 2,
+        "max": 10,
+        "idleTimeout": 60000
+      }
+    },
+    "redis": {
+      "host": "localhost",
+      "port": 6379,
+      "password": "your_password",
+      "db": 0
+    },
+    "mongodb": {
+      "url": "mongodb://localhost:27017",
+      "database": "mydb"
+    }
+  },
+  "security": {
+    "mode": "read_only"
+  }
+}
+
