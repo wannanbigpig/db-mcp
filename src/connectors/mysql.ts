@@ -63,7 +63,7 @@ export class MySQLConnector {
     }
   }
 
-  async query(sql: string, params?: any[]): Promise<any> {
+  async query(sql: string, params?: unknown[]): Promise<unknown> {
     if (this.usePool && this.pool) {
       try {
         const [rows] = await this.pool.execute(sql, params || []);

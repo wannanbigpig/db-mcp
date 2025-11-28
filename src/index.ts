@@ -484,7 +484,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request: CallToolRequest)
         if (!mysqlConnector) {
           throw new Error('MySQL 未连接，请先使用 mysql_connect 连接数据库');
         }
-        const { sql, params } = args as { sql: string; params?: any[] };
+        const { sql, params } = args as { sql: string; params?: unknown[] };
         
         // 安全检查
         if (!securityManager.isSQLAllowed(sql)) {
