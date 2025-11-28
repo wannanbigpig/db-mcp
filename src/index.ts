@@ -126,7 +126,7 @@ const tools: Tool[] = [
   },
   {
     name: 'mysql_query',
-    description: '执行 MySQL SQL 查询',
+    description: '执行 MySQL SQL 语句（支持 SELECT、INSERT、UPDATE、DELETE 等所有 SQL 操作）',
     inputSchema: {
       type: 'object',
       properties: {
@@ -138,6 +138,55 @@ const tools: Tool[] = [
         },
       },
       required: ['sql'],
+    },
+  },
+  {
+    name: 'mysql_insert',
+    description: '执行 MySQL INSERT 插入操作',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        table: { type: 'string', description: '表名' },
+        data: {
+          type: 'object',
+          description: '要插入的数据（键值对）',
+        },
+      },
+      required: ['table', 'data'],
+    },
+  },
+  {
+    name: 'mysql_update',
+    description: '执行 MySQL UPDATE 更新操作',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        table: { type: 'string', description: '表名' },
+        data: {
+          type: 'object',
+          description: '要更新的数据（键值对）',
+        },
+        where: {
+          type: 'object',
+          description: 'WHERE 条件（键值对，支持多个条件）',
+        },
+      },
+      required: ['table', 'data', 'where'],
+    },
+  },
+  {
+    name: 'mysql_delete',
+    description: '执行 MySQL DELETE 删除操作',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        table: { type: 'string', description: '表名' },
+        where: {
+          type: 'object',
+          description: 'WHERE 条件（键值对，支持多个条件）',
+        },
+      },
+      required: ['table', 'where'],
     },
   },
   {
@@ -499,6 +548,93 @@ server.setRequestHandler(CallToolRequestSchema, async (request: CallToolRequest)
             {
               type: 'text',
               text: JSON.stringify(poolStats, null, 2),
+            },
+          ],
+        };
+      }
+
+      case 'mysql_insert': {
+        if (!mysqlConnector) {
+          throw new Error('MySQL 未连接，请先使用 mysql_connect 连接数据库');
+        }
+        if (!securityManager.isOperationAllowed(OperationType.INSERT)) {
+          throw new Error(
+            `当前安全模式（${securityManager.getMode()}）不允许执行 INSERT 操作。` +
+            `允许的操作：${securityManager.getModeDescription()}`
+          );
+        }
+        const { table, data } = args as { table: string; data: Record<string, any> };
+        const columns = Object.keys(data);
+        const values = Object.values(data);
+        const placeholders = columns.map(() => '?').join(', ');
+        const sql = `INSERT INTO ${table} (${columns.join(', ')}) VALUES (${placeholders})`;
+        const result = await mysqlConnector.query(sql, values);
+        return {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify(result, null, 2),
+            },
+          ],
+        };
+      }
+
+      case 'mysql_update': {
+        if (!mysqlConnector) {
+          throw new Error('MySQL 未连接，请先使用 mysql_connect 连接数据库');
+        }
+        if (!securityManager.isOperationAllowed(OperationType.UPDATE)) {
+          throw new Error(
+            `当前安全模式（${securityManager.getMode()}）不允许执行 UPDATE 操作。` +
+            `允许的操作：${securityManager.getModeDescription()}`
+          );
+        }
+        const { table, data, where } = args as {
+          table: string;
+          data: Record<string, any>;
+          where: Record<string, any>;
+        };
+        const setClause = Object.keys(data)
+          .map((key) => `${key} = ?`)
+          .join(', ');
+        const whereClause = Object.keys(where)
+          .map((key) => `${key} = ?`)
+          .join(' AND ');
+        const params = [...Object.values(data), ...Object.values(where)];
+        const sql = `UPDATE ${table} SET ${setClause} WHERE ${whereClause}`;
+        const result = await mysqlConnector.query(sql, params);
+        return {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify(result, null, 2),
+            },
+          ],
+        };
+      }
+
+      case 'mysql_delete': {
+        if (!mysqlConnector) {
+          throw new Error('MySQL 未连接，请先使用 mysql_connect 连接数据库');
+        }
+        if (!securityManager.isOperationAllowed(OperationType.DELETE)) {
+          throw new Error(
+            `当前安全模式（${securityManager.getMode()}）不允许执行 DELETE 操作。` +
+            `允许的操作：${securityManager.getModeDescription()}`
+          );
+        }
+        const { table, where } = args as { table: string; where: Record<string, any> };
+        const whereClause = Object.keys(where)
+          .map((key) => `${key} = ?`)
+          .join(' AND ');
+        const params = Object.values(where);
+        const sql = `DELETE FROM ${table} WHERE ${whereClause}`;
+        const result = await mysqlConnector.query(sql, params);
+        return {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify(result, null, 2),
             },
           ],
         };
