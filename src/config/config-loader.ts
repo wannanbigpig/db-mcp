@@ -1,5 +1,6 @@
-import { readFileSync } from 'fs';
-import { join } from 'path';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import process from 'node:process';
 import { MySQLConfig } from '../connectors/mysql.js';
 import { RedisConfig } from '../connectors/redis.js';
 import { MongoDBConfig } from '../connectors/mongodb.js';
