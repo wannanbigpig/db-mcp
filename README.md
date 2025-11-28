@@ -26,9 +26,16 @@
 
 ## 安装
 
+### 前置要求
+
+- Node.js >= 18.0.0
+- npm >= 9.0.0 或 yarn >= 1.22.0
+
+### 安装步骤
+
 ```bash
 # 克隆仓库
-git clone <repository-url>
+git clone git@github_pig:wannanbigpig/db-mcp.git
 cd db-mcp
 
 # 安装依赖
@@ -38,11 +45,69 @@ npm install
 npm run build
 ```
 
+### 验证安装
+
+构建完成后，可以运行以下命令验证安装：
+
+```bash
+# 开发模式运行（测试）
+npm run dev
+
+# 或直接运行构建后的文件
+node dist/index.js
+```
+
+如果看到 "db-mcp 服务器已启动" 的提示，说明安装成功。
+
+### 配置数据库连接（可选）
+
+安装完成后，可以选择配置数据库连接：
+
+1. 复制示例配置文件：
+```bash
+cp config.json.example config.json
+```
+
+2. 编辑 `config.json`，填入你的数据库连接信息
+
+详细配置说明请参考[数据库连接配置](#数据库连接配置)部分。
+
+### 故障排查
+
+如果安装或运行遇到问题：
+
+1. **检查 Node.js 版本**：
+```bash
+node --version  # 应该 >= 18.0.0
+```
+
+2. **清理并重新安装**：
+```bash
+rm -rf node_modules package-lock.json
+npm install
+npm run build
+```
+
+3. **检查构建输出**：
+```bash
+ls -la dist/  # 应该看到编译后的 .js 文件
+```
+
 ## 使用方法
 
-### 在 Cursor 中配置
+db-mcp 是一个标准的 MCP (Model Context Protocol) 服务器，可以在任何支持 MCP 的客户端中使用，包括但不限于：
 
-在 Cursor 的设置中添加 MCP 服务器配置：
+- **Cursor** - AI 代码编辑器
+- **Claude Desktop** - Anthropic 的 Claude 桌面应用
+- **其他支持 MCP 的客户端**
+
+### 配置 MCP 服务器
+
+在你的 MCP 客户端配置文件中添加 db-mcp 服务器配置。配置格式因客户端而异：
+
+#### Cursor 配置示例
+
+在 Cursor 的设置文件（通常是 `~/.cursor/mcp.json` 或 Cursor 设置中的 MCP 配置）中添加：
 
 ```json
 {
@@ -58,6 +123,26 @@ npm run build
   }
 }
 ```
+
+#### Claude Desktop 配置示例
+
+在 Claude Desktop 的配置文件（通常是 `~/Library/Application Support/Claude/claude_desktop_config.json`）中添加：
+
+```json
+{
+  "mcpServers": {
+    "db-mcp": {
+      "command": "node",
+      "args": ["/path/to/db-mcp/dist/index.js"],
+      "env": {
+        "DB_MCP_SECURITY_MODE": "read_only"
+      }
+    }
+  }
+}
+```
+
+**注意**：请将 `/path/to/db-mcp/dist/index.js` 替换为你的实际安装路径。
 
 ### 预配置数据库连接
 
