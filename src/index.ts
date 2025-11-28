@@ -447,7 +447,7 @@ const tools: Tool[] = [
 ];
 
 // 处理工具列表请求
-server.setRequestHandler(ListToolsRequestSchema, async () => {
+server.setRequestHandler(ListToolsRequestSchema, () => {
   return {
     tools,
   };
