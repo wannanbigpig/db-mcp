@@ -40,9 +40,12 @@ export class MySQLConnector {
           ...connectionConfig,
           waitForConnections: true,
           connectionLimit: this.config.pool?.max || 10,
+          maxIdle: this.config.pool?.min || 2,
           queueLimit: 0,
           idleTimeout: this.config.pool?.idleTimeout || 60000,
         });
+        // createPool 是惰性连接，主动 ping 一次可在 connect 阶段尽早暴露配置错误。
+        await this.pool.query('SELECT 1');
       } else {
         // 使用单连接
         this.connection = await mysql.createConnection(connectionConfig);
@@ -101,12 +104,18 @@ export class MySQLConnector {
     if (!this.usePool || !this.pool) {
       return null;
     }
-    // mysql2 的 pool 没有直接的状态 API，这里返回基本信息
+    const poolInternal = this.pool as unknown as {
+      _allConnections?: { length: number };
+      _freeConnections?: { length: number };
+    };
+    const totalConnections = poolInternal._allConnections?.length ?? (this.config.pool?.max || 10);
+    const idleConnections = poolInternal._freeConnections?.length ?? 0;
+    const activeConnections = Math.max(totalConnections - idleConnections, 0);
+
     return {
-      totalConnections: this.config.pool?.max || 10,
-      activeConnections: 0, // 需要从 pool 内部获取，这里简化处理
-      idleConnections: 0,
+      totalConnections,
+      activeConnections,
+      idleConnections,
     };
   }
 }
-

@@ -1,0 +1,30 @@
+{
+  "databases": {
+    "mysql": {
+      "host": "127.0.0.1",
+      "port": 3306,
+      "user": "root",
+      "password": "root1234",
+      "database": "x_l_admin",
+      "pool": {
+        "min": 2,
+        "max": 5,
+        "idleTimeout": 60000
+      }
+    },
+    "redis": {
+      "host": "127.0.0.1",
+      "port": 6379,
+      "password": "",
+      "db": 0
+    },
+    "mongodb": {
+      "url": "mongodb://localhost:27017",
+      "database": "dior"
+    }
+  },
+  "security": {
+    "mode": "read_only"
+  }
+}
+

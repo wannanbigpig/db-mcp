@@ -47,6 +47,21 @@ function getSecurityMode(): SecurityMode {
 
 const securityManager = new SecurityManager(getSecurityMode());
 
+async function closeAllConnections() {
+  if (mysqlConnector) {
+    await mysqlConnector.disconnect().catch(() => undefined);
+    mysqlConnector = null;
+  }
+  if (redisConnector) {
+    await redisConnector.disconnect().catch(() => undefined);
+    redisConnector = null;
+  }
+  if (mongodbConnector) {
+    await mongodbConnector.disconnect().catch(() => undefined);
+    mongodbConnector = null;
+  }
+}
+
 // 初始化预配置的连接
 async function initializePreconfiguredConnections() {
   // 初始化 MySQL 连接（如果配置了）
@@ -70,6 +85,8 @@ async function initializePreconfiguredConnections() {
       process.stderr.write('✓ Redis 连接已初始化\n');
     } catch (error) {
       process.stderr.write(`✗ Redis 连接初始化失败: ${error instanceof Error ? error.message : String(error)}\n`);
+      // 初始化失败后避免保留异常连接对象
+      redisConnector = null;
     }
   }
 
@@ -81,6 +98,7 @@ async function initializePreconfiguredConnections() {
       process.stderr.write('✓ MongoDB 连接已初始化\n');
     } catch (error) {
       process.stderr.write(`✗ MongoDB 连接初始化失败: ${error instanceof Error ? error.message : String(error)}\n`);
+      mongodbConnector = null;
     }
   }
 }
@@ -1057,3 +1075,20 @@ main().catch((error) => {
   process.exit(1);
 });
 
+process.on('unhandledRejection', (reason) => {
+  process.stderr.write(`未处理的 Promise 异常: ${String(reason)}\n`);
+});
+
+process.on('uncaughtException', (error) => {
+  process.stderr.write(`未捕获异常: ${error.message}\n`);
+});
+
+process.on('SIGINT', async () => {
+  await closeAllConnections();
+  process.exit(0);
+});
+
+process.on('SIGTERM', async () => {
+  await closeAllConnections();
+  process.exit(0);
+});

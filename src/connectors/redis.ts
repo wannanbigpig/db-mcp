@@ -11,6 +11,7 @@ export interface RedisConfig {
 export class RedisConnector {
   private client: RedisClientType | null = null;
   private config: RedisConfig;
+  private lastError: string | null = null;
 
   constructor(config: RedisConfig) {
     this.config = config;
@@ -32,8 +33,8 @@ export class RedisConnector {
       }
 
       this.client.on('error', (err: Error) => {
-        // Redis 客户端错误处理
-        throw err;
+        // 不能在事件回调内抛错，否则会导致整个 MCP 进程退出。
+        this.lastError = err.message;
       });
 
       await this.client.connect();
@@ -113,5 +114,8 @@ export class RedisConnector {
       return false;
     }
   }
-}
 
+  getLastError(): string | null {
+    return this.lastError;
+  }
+}
