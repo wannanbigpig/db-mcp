@@ -170,9 +170,66 @@ db-mcp 是一个标准的 MCP (Model Context Protocol) 服务器，可以在任�
 
 通过 `DB_MCP_SECURITY_MODE` 环境变量或 `set_security_mode` 工具设置：
 
-- **read_only** (默认): 只允许查询操作
-- **restricted**: 允许查询和部分修改，禁止危险操作（DROP、TRUNCATE、ALTER TABLE 等）
-- **full_access**: 允许所有操作，包括表结构变更
+- **read_only** (默认): 只允许读操作，适合线上排查和只读分析
+- **restricted**: 允许安全范围内的写操作，适合日常开发调试
+- **full_access**: 不做操作级限制，适合本地开发或明确受控的环境
+
+三种模式的区别如下。
+
+#### `read_only`
+
+最保守的模式，只允许查询，不允许任何数据修改或结构变更。
+
+- MySQL:
+  - 允许: `SELECT`、`SHOW`、`DESCRIBE`、`DESC`、`EXPLAIN`
+  - 禁止: `INSERT`、`UPDATE`、`DELETE`、`CREATE`、`ALTER`、`DROP`、`TRUNCATE`
+- Redis:
+  - 允许: `redis_get`、`redis_hget`、`redis_hgetall`、`redis_keys`
+  - 禁止: `redis_set`、`redis_del`
+- MongoDB:
+  - 允许: `mongodb_find`、`mongodb_find_one`、`mongodb_count`、`mongodb_list_collections`
+  - 禁止: `mongodb_insert_one`、`mongodb_insert_many`、`mongodb_update_one`、`mongodb_delete_one`
+
+适用场景：
+- 生产环境只读排查
+- 给 AI 或自动化工具开放查询权限，但不希望它改数据
+
+#### `restricted`
+
+允许常见的数据写入和更新，但仍然阻止高风险操作。
+
+- MySQL:
+  - 允许: 查询语句，以及大多数普通 `INSERT`、`UPDATE`
+  - 禁止: `DROP`、`TRUNCATE`、`ALTER TABLE`
+  - 额外限制: `DELETE` 必须带 `WHERE`；结构化工具 `mysql_delete` 仍会被禁止
+- Redis:
+  - 允许: `redis_set`
+  - 禁止: `redis_del`
+- MongoDB:
+  - 允许: `mongodb_insert_one`、`mongodb_insert_many`、`mongodb_update_one`
+  - 禁止: `mongodb_delete_one`
+
+适用场景：
+- 测试环境、开发环境中的日常数据维护
+- 允许新增和修改，但不希望误删数据或误改表结构
+
+#### `full_access`
+
+完全开放模式，允许所有读写和结构变更操作。
+
+- MySQL: 允许 `SELECT`、`INSERT`、`UPDATE`、`DELETE`、`CREATE`、`ALTER`、`DROP`、`TRUNCATE`
+- Redis: 允许所有已提供工具，包括 `redis_set`、`redis_del`
+- MongoDB: 允许所有已提供工具，包括插入、更新、删除
+
+适用场景：
+- 本地开发
+- 明确受控的测试环境
+- 需要执行表结构变更或批量清理数据的场景
+
+使用建议：
+- 默认使用 `read_only`
+- 需要改数据但不需要删表、删库、改表结构时，使用 `restricted`
+- 只有在你明确知道会执行高风险操作时，才使用 `full_access`
 
 ### 开发模式
 
