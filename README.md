@@ -150,6 +150,22 @@ db-mcp 是一个标准的 MCP (Model Context Protocol) 服务器，可以在任�
 
 环境变量示例：`MYSQL_HOST`、`MYSQL_USER`、`MYSQL_PASSWORD`、`REDIS_HOST`、`MONGODB_URL` 等。
 
+### 运行时保护参数
+
+除了数据库连接信息，还支持通过环境变量配置运行时保护策略：
+
+- `DB_MCP_OPERATION_TIMEOUT_MS`: 单次工具调用超时时间，默认 `30000`
+- `DB_MCP_MAX_RESULT_ITEMS`: 响应中数组结果最多保留多少项，默认 `200`
+- `DB_MCP_MAX_RESPONSE_BYTES`: 响应文本最大字节数，默认 `65536`
+- `DB_MCP_DEFAULT_MONGO_LIMIT`: `mongodb_find` 默认 `limit`，默认 `100`
+- `DB_MCP_MAX_MONGO_LIMIT`: `mongodb_find` 允许的最大 `limit`，默认 `500`
+- `DB_MCP_MYSQL_SELECT_LIMIT`: MySQL 会话级 `SQL_SELECT_LIMIT`，默认 `500`
+- `DB_MCP_MAX_CONCURRENT_MYSQL`: MySQL 工具最大并发数，默认 `4`
+- `DB_MCP_MAX_CONCURRENT_REDIS`: Redis 工具最大并发数，默认 `16`
+- `DB_MCP_MAX_CONCURRENT_MONGO`: MongoDB 工具最大并发数，默认 `6`
+
+这些限制会帮助服务避免被大结果集、慢查询或突发并发拖垮。
+
 ### 安全模式
 
 通过 `DB_MCP_SECURITY_MODE` 环境变量或 `set_security_mode` 工具设置：
@@ -216,6 +232,8 @@ npm run dev
 
 也可以通过工具动态连接，使用 `*_connect` 工具建立连接，`*_disconnect` 断开连接。
 
+如果你担心凭证暴露给调用工具的 AI，建议优先使用预配置连接，不要把数据库密码作为 `*_connect` 的工具参数传给模型。
+
 ## 可用工具
 
 ### MySQL 工具
@@ -272,14 +290,20 @@ npm run dev
 
 **参数:** 无
 
-**返回:** 连接池状态信息（总连接数、活跃连接数、空闲连接数）
+**返回:** 连接池状态信息，包括：
+- 总连接数
+- 活跃连接数
+- 空闲连接数
+- 排队请求数 `queuedRequests`
+- 配置的最大连接数 `configuredMaxConnections`
+- 当前会话级 `SQL_SELECT_LIMIT`
 
 ### Redis 工具
 
 - `redis_connect`: 连接 Redis（参数: `host`, `port`, `password`, `db`, `url`）
 - `redis_get`: 获取键值（参数: `key`）
 - `redis_set`: 设置键值（参数: `key`, `value`, `ttl`）
-- `redis_keys`: 查找匹配的键（参数: `pattern`）
+- `redis_keys`: 使用 `SCAN` 查找匹配的键，避免 `KEYS` 阻塞实例（参数: `pattern`, `count`, `limit`）
 - `redis_del`: 删除键（参数: `key`）
 - `redis_hget`: 获取哈希字段（参数: `key`, `field`）
 - `redis_hgetall`: 获取所有哈希字段（参数: `key`）
@@ -289,6 +313,7 @@ npm run dev
 
 - `mongodb_connect`: 连接 MongoDB（参数: `url`, `database`）
 - `mongodb_find`: 查找文档（参数: `collection`, `filter`, `limit`, `skip`, `sort`）
+  默认会应用 `limit`，并且 `limit` 会被限制在运行时配置允许的最大值内
 - `mongodb_find_one`: 查找单个文档（参数: `collection`, `filter`）
 - `mongodb_insert_one`: 插入单个文档（参数: `collection`, `document`）
 - `mongodb_insert_many`: 插入多个文档（参数: `collection`, `documents`）
@@ -302,6 +327,32 @@ npm run dev
 
 - `set_security_mode`: 设置安全模式（参数: `mode` - `read_only`/`restricted`/`full_access`）
 - `get_security_mode`: 获取当前安全模式
+- `server_runtime_status`: 获取服务运行时状态，包括超时、响应限制、并发队列、连接状态和 MySQL 连接池状态
+
+## 运行时观测
+
+可以通过 `server_runtime_status` 工具查看当前服务状态，无需参数。
+
+返回内容包括：
+
+- 当前安全模式
+- 操作超时配置
+- 响应裁剪限制
+- MySQL `SQL_SELECT_LIMIT`
+- Mongo 默认/最大 `limit`
+- MySQL、Redis、MongoDB 的 limiter 状态
+  - `active`: 当前执行中的请求数
+  - `queued`: 当前排队中的请求数
+  - `maxConcurrent`: 最大并发数
+- 当前数据库连接状态
+- MySQL 连接池状态
+
+这个工具适合用来排查：
+
+- 为什么查询被截断
+- 为什么请求在排队
+- 为什么 MySQL 池被打满
+- 当前服务的保护阈值是多少
 
 ## 使用示例
 
@@ -325,7 +376,7 @@ npm run dev
 // 操作
 { "key": "user:1", "value": "John Doe", "ttl": 3600 }
 { "key": "user:1" }
-{ "pattern": "user:*" }
+{ "pattern": "user:*", "count": 100, "limit": 200 }
 ```
 
 ### MongoDB
@@ -336,6 +387,11 @@ npm run dev
 // 操作
 { "collection": "users", "filter": { "age": { "$gte": 18 } }, "limit": 10 }
 { "collection": "users", "document": { "name": "John", "age": 30 } }
+```
+
+### 运行时状态
+```json
+{}
 ```
 
 ## 开发
@@ -361,4 +417,3 @@ MIT
 ## 贡献
 
 欢迎提交 Issue 和 Pull Request！
-

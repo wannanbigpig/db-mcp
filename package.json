@@ -9,7 +9,7 @@
     "start": "node dist/index.js",
     "dev": "tsx src/index.ts",
     "watch": "tsc --watch",
-    "test": "echo \"No tests specified\" && exit 0"
+    "test": "npm run build && node --test dist/tests/*.test.js"
   },
   "keywords": [
     "mcp",
@@ -34,4 +34,3 @@
     "typescript": "^5.3.3"
   }
 }
-

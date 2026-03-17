@@ -9,19 +9,35 @@ import {
   Tool,
   CallToolRequest,
 } from '@modelcontextprotocol/sdk/types.js';
-import { MySQLConnector, MySQLConfig } from './connectors/mysql.js';
-import { RedisConnector, RedisConfig } from './connectors/redis.js';
-import { MongoDBConnector, MongoDBConfig } from './connectors/mongodb.js';
-import { SecurityManager, SecurityMode, OperationType } from './security/security-manager.js';
+import { MySQLConnector } from './connectors/mysql.js';
+import { RedisConnector } from './connectors/redis.js';
+import { MongoDBConnector } from './connectors/mongodb.js';
+import { SecurityManager, SecurityMode } from './security/security-manager.js';
 import { ConfigLoader } from './config/config-loader.js';
+import { MySQLHandler } from './handlers/mysql.handler.js';
+import { RedisHandler } from './handlers/redis.handler.js';
+import { MongoDBHandler } from './handlers/mongodb.handler.js';
+import { SecurityHandler } from './handlers/security.handler.js';
+import { buildErrorResponse, configureResponseLimits } from './utils/response.js';
+import { withTimeout } from './utils/async.js';
+import { ConcurrencyLimiter } from './utils/concurrency.js';
 
 // 加载配置
 const appConfig = ConfigLoader.load();
+const operationTimeoutMs = appConfig.runtime?.operationTimeoutMs ?? 30000;
+const maxResultItems = appConfig.runtime?.maxResultItems ?? 200;
+const maxResponseBytes = appConfig.runtime?.maxResponseBytes ?? 65536;
+const defaultMongoLimit = appConfig.runtime?.defaultMongoLimit ?? 100;
+const maxMongoLimit = appConfig.runtime?.maxMongoLimit ?? 500;
+const mysqlSelectLimit = appConfig.runtime?.mysqlSelectLimit ?? 500;
+const maxConcurrentMySql = appConfig.runtime?.maxConcurrentMySql ?? 4;
+const maxConcurrentRedis = appConfig.runtime?.maxConcurrentRedis ?? 16;
+const maxConcurrentMongo = appConfig.runtime?.maxConcurrentMongo ?? 6;
 
-// 全局连接器实例
-let mysqlConnector: MySQLConnector | null = null;
-let redisConnector: RedisConnector | null = null;
-let mongodbConnector: MongoDBConnector | null = null;
+configureResponseLimits({
+  maxResultItems,
+  maxResponseBytes,
+});
 
 // 全局安全管理器
 function getSecurityMode(): SecurityMode {
@@ -47,19 +63,24 @@ function getSecurityMode(): SecurityMode {
 
 const securityManager = new SecurityManager(getSecurityMode());
 
+// 初始化各个处理器
+const mysqlHandler = new MySQLHandler(securityManager, {
+  selectLimit: mysqlSelectLimit,
+});
+const redisHandler = new RedisHandler(securityManager);
+const mongodbHandler = new MongoDBHandler(securityManager, {
+  defaultLimit: defaultMongoLimit,
+  maxLimit: maxMongoLimit,
+});
+const securityHandler = new SecurityHandler(securityManager);
+const mysqlLimiter = new ConcurrencyLimiter(maxConcurrentMySql);
+const redisLimiter = new ConcurrencyLimiter(maxConcurrentRedis);
+const mongoLimiter = new ConcurrencyLimiter(maxConcurrentMongo);
+
 async function closeAllConnections() {
-  if (mysqlConnector) {
-    await mysqlConnector.disconnect().catch(() => undefined);
-    mysqlConnector = null;
-  }
-  if (redisConnector) {
-    await redisConnector.disconnect().catch(() => undefined);
-    redisConnector = null;
-  }
-  if (mongodbConnector) {
-    await mongodbConnector.disconnect().catch(() => undefined);
-    mongodbConnector = null;
-  }
+  await mysqlHandler.handleDisconnect().catch(() => undefined);
+  await redisHandler.handleDisconnect().catch(() => undefined);
+  await mongodbHandler.handleDisconnect().catch(() => undefined);
 }
 
 // 初始化预配置的连接
@@ -69,9 +90,14 @@ async function initializePreconfiguredConnections() {
     try {
       const mysqlConfig = appConfig.databases.mysql;
       const usePool = mysqlConfig.pool !== undefined;
-      mysqlConnector = new MySQLConnector(mysqlConfig, usePool);
-      await mysqlConnector.connect();
-      process.stderr.write(`✓ MySQL 连接已初始化${usePool ? '（使用连接池）' : ''}\n`);
+      const connector = new MySQLConnector(mysqlConfig, usePool, {
+        selectLimit: mysqlSelectLimit,
+      });
+      await connector.connect();
+      mysqlHandler.setConnector(connector);
+      process.stderr.write(
+        `✓ MySQL 连接已初始化${usePool ? '（使用连接池）' : ''}，SQL_SELECT_LIMIT=${mysqlSelectLimit}\n`
+      );
     } catch (error) {
       process.stderr.write(`✗ MySQL 连接初始化失败: ${error instanceof Error ? error.message : String(error)}\n`);
     }
@@ -80,27 +106,63 @@ async function initializePreconfiguredConnections() {
   // 初始化 Redis 连接（如果配置了）
   if (appConfig.databases?.redis) {
     try {
-      redisConnector = new RedisConnector(appConfig.databases.redis);
-      await redisConnector.connect();
+      const connector = new RedisConnector(appConfig.databases.redis);
+      await connector.connect();
+      redisHandler.setConnector(connector);
       process.stderr.write('✓ Redis 连接已初始化\n');
     } catch (error) {
       process.stderr.write(`✗ Redis 连接初始化失败: ${error instanceof Error ? error.message : String(error)}\n`);
-      // 初始化失败后避免保留异常连接对象
-      redisConnector = null;
     }
   }
 
   // 初始化 MongoDB 连接（如果配置了）
   if (appConfig.databases?.mongodb) {
     try {
-      mongodbConnector = new MongoDBConnector(appConfig.databases.mongodb);
-      await mongodbConnector.connect();
+      const connector = new MongoDBConnector(appConfig.databases.mongodb);
+      await connector.connect();
+      mongodbHandler.setConnector(connector);
       process.stderr.write('✓ MongoDB 连接已初始化\n');
     } catch (error) {
       process.stderr.write(`✗ MongoDB 连接初始化失败: ${error instanceof Error ? error.message : String(error)}\n`);
-      mongodbConnector = null;
     }
   }
+}
+
+function getRuntimeStatus() {
+  return {
+    security: {
+      mode: securityManager.getMode(),
+      description: securityManager.getModeDescription(),
+    },
+    runtime: {
+      operationTimeoutMs,
+      maxResultItems,
+      maxResponseBytes,
+      mysqlSelectLimit,
+      defaultMongoLimit,
+      maxMongoLimit,
+      concurrency: {
+        mysql: mysqlLimiter.snapshot(),
+        redis: redisLimiter.snapshot(),
+        mongodb: mongoLimiter.snapshot(),
+      },
+    },
+    connections: {
+      mysql: {
+        configured: appConfig.databases?.mysql !== undefined,
+        connected: mysqlHandler.getConnector() !== null,
+        pool: mysqlHandler.getConnector()?.getPoolStats() ?? null,
+      },
+      redis: {
+        configured: appConfig.databases?.redis !== undefined,
+        connected: redisHandler.getConnector() !== null,
+      },
+      mongodb: {
+        configured: appConfig.databases?.mongodb !== undefined,
+        connected: mongodbHandler.getConnector() !== null,
+      },
+    },
+  };
 }
 
 const server = new Server(
@@ -114,6 +176,14 @@ const server = new Server(
     },
   }
 );
+
+type ToolResponse = {
+  content: Array<{
+    type: string;
+    text: string;
+  }>;
+  isError?: boolean;
+};
 
 // 定义工具列表
 const tools: Tool[] = [
@@ -266,11 +336,13 @@ const tools: Tool[] = [
   },
   {
     name: 'redis_keys',
-    description: '查找匹配模式的 Redis 键',
+    description: '使用 SCAN 查找匹配模式的 Redis 键，避免 KEYS 阻塞实例',
     inputSchema: {
       type: 'object',
       properties: {
         pattern: { type: 'string', description: '键的模式，例如 "user:*"' },
+        count: { type: 'number', description: '每次 SCAN 批量大小，默认 100' },
+        limit: { type: 'number', description: '最多返回多少个键，默认 500' },
       },
       required: ['pattern'],
     },
@@ -462,600 +534,91 @@ const tools: Tool[] = [
       properties: {},
     },
   },
+  {
+    name: 'server_runtime_status',
+    description: '获取服务运行时状态，包括并发限制、队列、响应限制、超时和连接状态',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+    },
+  },
 ];
 
-// 处理工具列表请求
-server.setRequestHandler(ListToolsRequestSchema, () => {
-  return {
-    tools,
-  };
-});
+server.setRequestHandler(ListToolsRequestSchema, async () => ({
+  tools,
+}));
 
-// 处理工具调用请求
+const toolHandlers: Record<string, (args: Record<string, unknown>) => Promise<ToolResponse> | ToolResponse> = {
+  mysql_connect: (args) => mysqlHandler.handleConnect(args),
+  mysql_query: (args) => mysqlHandler.handleQuery(args),
+  mysql_disconnect: () => mysqlHandler.handleDisconnect(),
+  mysql_pool_status: () => mysqlHandler.handlePoolStatus(),
+  mysql_insert: (args) => mysqlHandler.handleInsert(args),
+  mysql_update: (args) => mysqlHandler.handleUpdate(args),
+  mysql_delete: (args) => mysqlHandler.handleDelete(args),
+  redis_connect: (args) => redisHandler.handleConnect(args),
+  redis_get: (args) => redisHandler.handleGet(args),
+  redis_set: (args) => redisHandler.handleSet(args),
+  redis_keys: (args) => redisHandler.handleKeys(args),
+  redis_del: (args) => redisHandler.handleDelete(args),
+  redis_hget: (args) => redisHandler.handleHGet(args),
+  redis_hgetall: (args) => redisHandler.handleHGetAll(args),
+  redis_disconnect: () => redisHandler.handleDisconnect(),
+  mongodb_connect: (args) => mongodbHandler.handleConnect(args),
+  mongodb_find: (args) => mongodbHandler.handleFind(args),
+  mongodb_find_one: (args) => mongodbHandler.handleFindOne(args),
+  mongodb_insert_one: (args) => mongodbHandler.handleInsertOne(args),
+  mongodb_insert_many: (args) => mongodbHandler.handleInsertMany(args),
+  mongodb_update_one: (args) => mongodbHandler.handleUpdateOne(args),
+  mongodb_delete_one: (args) => mongodbHandler.handleDeleteOne(args),
+  mongodb_count: (args) => mongodbHandler.handleCount(args),
+  mongodb_list_collections: () => mongodbHandler.handleListCollections(),
+  mongodb_disconnect: () => mongodbHandler.handleDisconnect(),
+  set_security_mode: (args) => securityHandler.handleSetMode(args),
+  get_security_mode: () => securityHandler.handleGetMode(),
+  server_runtime_status: () => ({
+    content: [
+      {
+        type: 'text',
+        text: JSON.stringify(getRuntimeStatus(), null, 2),
+      },
+    ],
+  }),
+};
+
+function getLimiter(name: string): ConcurrencyLimiter | null {
+  if (name.startsWith('mysql_')) {
+    return mysqlLimiter;
+  }
+  if (name.startsWith('redis_')) {
+    return redisLimiter;
+  }
+  if (name.startsWith('mongodb_')) {
+    return mongoLimiter;
+  }
+  return null;
+}
+
 server.setRequestHandler(CallToolRequestSchema, async (request: CallToolRequest) => {
-  const { name, arguments: args } = request.params;
+  const { name, arguments: args = {} } = request.params;
 
   try {
-    switch (name) {
-      // MySQL 操作
-      case 'mysql_connect': {
-        const mysqlConfig = args as unknown as MySQLConfig & { usePool?: boolean };
-        const usePool = mysqlConfig.usePool === true && mysqlConfig.pool !== undefined;
-        
-        // 如果已有连接，先断开
-        if (mysqlConnector) {
-          await mysqlConnector.disconnect();
-        }
-        
-        mysqlConnector = new MySQLConnector(mysqlConfig, usePool);
-        await mysqlConnector.connect();
-        return {
-          content: [
-            {
-              type: 'text',
-              text: `成功连接到 MySQL 数据库: ${mysqlConfig.host}:${mysqlConfig.port || 3306}${usePool ? '（使用连接池）' : ''}`,
-            },
-          ],
-        };
-      }
-
-      case 'mysql_query': {
-        if (!mysqlConnector) {
-          throw new Error('MySQL 未连接，请先使用 mysql_connect 连接数据库');
-        }
-        const { sql, params } = args as { sql: string; params?: unknown[] };
-        
-        // 安全检查
-        if (!securityManager.isSQLAllowed(sql)) {
-          throw new Error(
-            `当前安全模式（${securityManager.getMode()}）不允许执行此 SQL 语句。` +
-            `允许的操作：${securityManager.getModeDescription()}`
-          );
-        }
-        
-        const result = await mysqlConnector.query(sql, params);
-        return {
-          content: [
-            {
-              type: 'text',
-              text: JSON.stringify(result, null, 2),
-            },
-          ],
-        };
-      }
-
-      case 'mysql_disconnect': {
-        if (mysqlConnector) {
-          await mysqlConnector.disconnect();
-          mysqlConnector = null;
-          return {
-            content: [
-              {
-                type: 'text',
-                text: '已断开 MySQL 数据库连接',
-              },
-            ],
-          };
-        }
-        return {
-          content: [
-            {
-              type: 'text',
-              text: 'MySQL 数据库未连接',
-            },
-          ],
-        };
-      }
-
-      case 'mysql_pool_status': {
-        if (!mysqlConnector) {
-          throw new Error('MySQL 未连接，请先使用 mysql_connect 连接数据库');
-        }
-        const poolStats = mysqlConnector.getPoolStats();
-        if (!poolStats) {
-          return {
-            content: [
-              {
-                type: 'text',
-                text: '当前未使用连接池',
-              },
-            ],
-          };
-        }
-        return {
-          content: [
-            {
-              type: 'text',
-              text: JSON.stringify(poolStats, null, 2),
-            },
-          ],
-        };
-      }
-
-      case 'mysql_insert': {
-        if (!mysqlConnector) {
-          throw new Error('MySQL 未连接，请先使用 mysql_connect 连接数据库');
-        }
-        if (!securityManager.isOperationAllowed(OperationType.INSERT)) {
-          throw new Error(
-            `当前安全模式（${securityManager.getMode()}）不允许执行 INSERT 操作。` +
-            `允许的操作：${securityManager.getModeDescription()}`
-          );
-        }
-        const { table, data } = args as { table: string; data: Record<string, unknown> };
-        const columns = Object.keys(data);
-        const values = Object.values(data);
-        const placeholders = columns.map(() => '?').join(', ');
-        const sql = `INSERT INTO ${table} (${columns.join(', ')}) VALUES (${placeholders})`;
-        const result = await mysqlConnector.query(sql, values);
-        return {
-          content: [
-            {
-              type: 'text',
-              text: JSON.stringify(result, null, 2),
-            },
-          ],
-        };
-      }
-
-      case 'mysql_update': {
-        if (!mysqlConnector) {
-          throw new Error('MySQL 未连接，请先使用 mysql_connect 连接数据库');
-        }
-        if (!securityManager.isOperationAllowed(OperationType.UPDATE)) {
-          throw new Error(
-            `当前安全模式（${securityManager.getMode()}）不允许执行 UPDATE 操作。` +
-            `允许的操作：${securityManager.getModeDescription()}`
-          );
-        }
-        const { table, data, where } = args as {
-          table: string;
-          data: Record<string, unknown>;
-          where: Record<string, unknown>;
-        };
-        const setClause = Object.keys(data)
-          .map((key) => `${key} = ?`)
-          .join(', ');
-        const whereClause = Object.keys(where)
-          .map((key) => `${key} = ?`)
-          .join(' AND ');
-        const params = [...Object.values(data), ...Object.values(where)];
-        const sql = `UPDATE ${table} SET ${setClause} WHERE ${whereClause}`;
-        const result = await mysqlConnector.query(sql, params);
-        return {
-          content: [
-            {
-              type: 'text',
-              text: JSON.stringify(result, null, 2),
-            },
-          ],
-        };
-      }
-
-      case 'mysql_delete': {
-        if (!mysqlConnector) {
-          throw new Error('MySQL 未连接，请先使用 mysql_connect 连接数据库');
-        }
-        if (!securityManager.isOperationAllowed(OperationType.DELETE)) {
-          throw new Error(
-            `当前安全模式（${securityManager.getMode()}）不允许执行 DELETE 操作。` +
-            `允许的操作：${securityManager.getModeDescription()}`
-          );
-        }
-        const { table, where } = args as { table: string; where: Record<string, unknown> };
-        const whereClause = Object.keys(where)
-          .map((key) => `${key} = ?`)
-          .join(' AND ');
-        const params = Object.values(where);
-        const sql = `DELETE FROM ${table} WHERE ${whereClause}`;
-        const result = await mysqlConnector.query(sql, params);
-        return {
-          content: [
-            {
-              type: 'text',
-              text: JSON.stringify(result, null, 2),
-            },
-          ],
-        };
-      }
-
-      // Redis 操作
-      case 'redis_connect': {
-        const redisConfig = args as unknown as RedisConfig;
-        // 如果已有连接，先断开
-        if (redisConnector) {
-          await redisConnector.disconnect();
-        }
-        redisConnector = new RedisConnector(redisConfig);
-        await redisConnector.connect();
-        const host = redisConfig.url ? new URL(redisConfig.url).hostname : redisConfig.host;
-        const port = redisConfig.url ? new URL(redisConfig.url).port || 6379 : (redisConfig.port || 6379);
-        return {
-          content: [
-            {
-              type: 'text',
-              text: `成功连接到 Redis 数据库: ${host}:${port}`,
-            },
-          ],
-        };
-      }
-
-      case 'redis_get': {
-        if (!redisConnector) {
-          throw new Error('Redis 未连接，请先使用 redis_connect 连接数据库');
-        }
-        const { key } = args as { key: string };
-        const value = await redisConnector.get(key);
-        return {
-          content: [
-            {
-              type: 'text',
-              text: value === null ? `键 "${key}" 不存在` : JSON.stringify(value),
-            },
-          ],
-        };
-      }
-
-      case 'redis_set': {
-        if (!redisConnector) {
-          throw new Error('Redis 未连接，请先使用 redis_connect 连接数据库');
-        }
-        if (!securityManager.isOperationAllowed(OperationType.SET)) {
-          throw new Error(
-            `当前安全模式（${securityManager.getMode()}）不允许执行 SET 操作。` +
-            `允许的操作：${securityManager.getModeDescription()}`
-          );
-        }
-        const { key, value, ttl } = args as { key: string; value: string; ttl?: number };
-        await redisConnector.set(key, value, ttl);
-        return {
-          content: [
-            {
-              type: 'text',
-              text: `成功设置键 "${key}"${ttl ? `，过期时间: ${ttl}秒` : ''}`,
-            },
-          ],
-        };
-      }
-
-      case 'redis_keys': {
-        if (!redisConnector) {
-          throw new Error('Redis 未连接，请先使用 redis_connect 连接数据库');
-        }
-        const { pattern } = args as { pattern: string };
-        const keys = await redisConnector.keys(pattern);
-        return {
-          content: [
-            {
-              type: 'text',
-              text: JSON.stringify(keys, null, 2),
-            },
-          ],
-        };
-      }
-
-      case 'redis_del': {
-        if (!redisConnector) {
-          throw new Error('Redis 未连接，请先使用 redis_connect 连接数据库');
-        }
-        if (!securityManager.isOperationAllowed(OperationType.DELETE)) {
-          throw new Error(
-            `当前安全模式（${securityManager.getMode()}）不允许执行 DELETE 操作。` +
-            `允许的操作：${securityManager.getModeDescription()}`
-          );
-        }
-        const { key } = args as { key: string };
-        const deleted = await redisConnector.del(key);
-        return {
-          content: [
-            {
-              type: 'text',
-              text: deleted > 0 ? `成功删除键 "${key}"` : `键 "${key}" 不存在`,
-            },
-          ],
-        };
-      }
-
-      case 'redis_hget': {
-        if (!redisConnector) {
-          throw new Error('Redis 未连接，请先使用 redis_connect 连接数据库');
-        }
-        const { key, field } = args as { key: string; field: string };
-        const value = await redisConnector.hget(key, field);
-        return {
-          content: [
-            {
-              type: 'text',
-              text: value === undefined ? `字段 "${field}" 不存在` : JSON.stringify(value),
-            },
-          ],
-        };
-      }
-
-      case 'redis_hgetall': {
-        if (!redisConnector) {
-          throw new Error('Redis 未连接，请先使用 redis_connect 连接数据库');
-        }
-        const { key } = args as { key: string };
-        const result = await redisConnector.hgetall(key);
-        return {
-          content: [
-            {
-              type: 'text',
-              text: JSON.stringify(result, null, 2),
-            },
-          ],
-        };
-      }
-
-      case 'redis_disconnect': {
-        if (redisConnector) {
-          await redisConnector.disconnect();
-          redisConnector = null;
-          return {
-            content: [
-              {
-                type: 'text',
-                text: '已断开 Redis 数据库连接',
-              },
-            ],
-          };
-        }
-        return {
-          content: [
-            {
-              type: 'text',
-              text: 'Redis 数据库未连接',
-            },
-          ],
-        };
-      }
-
-      // MongoDB 操作
-      case 'mongodb_connect': {
-        const mongodbConfig = args as unknown as MongoDBConfig;
-        mongodbConnector = new MongoDBConnector(mongodbConfig);
-        await mongodbConnector.connect();
-        return {
-          content: [
-            {
-              type: 'text',
-              text: `成功连接到 MongoDB 数据库: ${mongodbConfig.url}`,
-            },
-          ],
-        };
-      }
-
-      case 'mongodb_find': {
-        if (!mongodbConnector) {
-          throw new Error('MongoDB 未连接，请先使用 mongodb_connect 连接数据库');
-        }
-        const { collection, filter = {}, limit, skip, sort } = args as {
-          collection: string;
-          filter?: Record<string, unknown>;
-          limit?: number;
-          skip?: number;
-          sort?: Record<string, unknown>;
-        };
-        const options: Record<string, unknown> = {};
-        if (limit) options.limit = limit;
-        if (skip) options.skip = skip;
-        if (sort) options.sort = sort;
-        const result = await mongodbConnector.find(collection, filter, options);
-        return {
-          content: [
-            {
-              type: 'text',
-              text: JSON.stringify(result, null, 2),
-            },
-          ],
-        };
-      }
-
-      case 'mongodb_find_one': {
-        if (!mongodbConnector) {
-          throw new Error('MongoDB 未连接，请先使用 mongodb_connect 连接数据库');
-        }
-        const { collection, filter = {} } = args as { collection: string; filter?: Record<string, unknown> };
-        const result = await mongodbConnector.findOne(collection, filter);
-        return {
-          content: [
-            {
-              type: 'text',
-              text: result === null ? '未找到匹配的文档' : JSON.stringify(result, null, 2),
-            },
-          ],
-        };
-      }
-
-      case 'mongodb_insert_one': {
-        if (!mongodbConnector) {
-          throw new Error('MongoDB 未连接，请先使用 mongodb_connect 连接数据库');
-        }
-        if (!securityManager.isOperationAllowed(OperationType.INSERT)) {
-          throw new Error(
-            `当前安全模式（${securityManager.getMode()}）不允许执行 INSERT 操作。` +
-            `允许的操作：${securityManager.getModeDescription()}`
-          );
-        }
-        const { collection, document } = args as { collection: string; document: Record<string, unknown> };
-        const result = await mongodbConnector.insertOne(collection, document);
-        return {
-          content: [
-            {
-              type: 'text',
-              text: JSON.stringify(result, null, 2),
-            },
-          ],
-        };
-      }
-
-      case 'mongodb_insert_many': {
-        if (!mongodbConnector) {
-          throw new Error('MongoDB 未连接，请先使用 mongodb_connect 连接数据库');
-        }
-        if (!securityManager.isOperationAllowed(OperationType.INSERT)) {
-          throw new Error(
-            `当前安全模式（${securityManager.getMode()}）不允许执行 INSERT 操作。` +
-            `允许的操作：${securityManager.getModeDescription()}`
-          );
-        }
-        const { collection, documents } = args as { collection: string; documents: Record<string, unknown>[] };
-        const result = await mongodbConnector.insertMany(collection, documents);
-        return {
-          content: [
-            {
-              type: 'text',
-              text: JSON.stringify(result, null, 2),
-            },
-          ],
-        };
-      }
-
-      case 'mongodb_update_one': {
-        if (!mongodbConnector) {
-          throw new Error('MongoDB 未连接，请先使用 mongodb_connect 连接数据库');
-        }
-        if (!securityManager.isOperationAllowed(OperationType.UPDATE)) {
-          throw new Error(
-            `当前安全模式（${securityManager.getMode()}）不允许执行 UPDATE 操作。` +
-            `允许的操作：${securityManager.getModeDescription()}`
-          );
-        }
-        const { collection, filter, update } = args as {
-          collection: string;
-          filter: Record<string, unknown>;
-          update: Record<string, unknown>;
-        };
-        const result = await mongodbConnector.updateOne(collection, filter, update);
-        return {
-          content: [
-            {
-              type: 'text',
-              text: JSON.stringify(result, null, 2),
-            },
-          ],
-        };
-      }
-
-      case 'mongodb_delete_one': {
-        if (!mongodbConnector) {
-          throw new Error('MongoDB 未连接，请先使用 mongodb_connect 连接数据库');
-        }
-        if (!securityManager.isOperationAllowed(OperationType.DELETE)) {
-          throw new Error(
-            `当前安全模式（${securityManager.getMode()}）不允许执行 DELETE 操作。` +
-            `允许的操作：${securityManager.getModeDescription()}`
-          );
-        }
-        const { collection, filter } = args as { collection: string; filter: Record<string, unknown> };
-        const result = await mongodbConnector.deleteOne(collection, filter);
-        return {
-          content: [
-            {
-              type: 'text',
-              text: JSON.stringify(result, null, 2),
-            },
-          ],
-        };
-      }
-
-      case 'mongodb_count': {
-        if (!mongodbConnector) {
-          throw new Error('MongoDB 未连接，请先使用 mongodb_connect 连接数据库');
-        }
-        const { collection, filter = {} } = args as { collection: string; filter?: Record<string, unknown> };
-        const count = await mongodbConnector.countDocuments(collection, filter);
-        return {
-          content: [
-            {
-              type: 'text',
-              text: `匹配的文档数量: ${count}`,
-            },
-          ],
-        };
-      }
-
-      case 'mongodb_list_collections': {
-        if (!mongodbConnector) {
-          throw new Error('MongoDB 未连接，请先使用 mongodb_connect 连接数据库');
-        }
-        const collections = await mongodbConnector.listCollections();
-        return {
-          content: [
-            {
-              type: 'text',
-              text: JSON.stringify(collections, null, 2),
-            },
-          ],
-        };
-      }
-
-      case 'mongodb_disconnect': {
-        if (mongodbConnector) {
-          await mongodbConnector.disconnect();
-          mongodbConnector = null;
-          return {
-            content: [
-              {
-                type: 'text',
-                text: '已断开 MongoDB 数据库连接',
-              },
-            ],
-          };
-        }
-        return {
-          content: [
-            {
-              type: 'text',
-              text: 'MongoDB 数据库未连接',
-            },
-          ],
-        };
-      }
-
-      // 安全配置操作
-      case 'set_security_mode': {
-        const { mode } = args as { mode: string };
-        const securityMode = mode as SecurityMode;
-        if (!Object.values(SecurityMode).includes(securityMode)) {
-          throw new Error(`无效的安全模式: ${mode}。有效值: read_only, restricted, full_access`);
-        }
-        securityManager.setMode(securityMode);
-        return {
-          content: [
-            {
-              type: 'text',
-              text: `安全模式已设置为: ${securityMode}\n${securityManager.getModeDescription()}`,
-            },
-          ],
-        };
-      }
-
-      case 'get_security_mode': {
-        return {
-          content: [
-            {
-              type: 'text',
-              text: `当前安全模式: ${securityManager.getMode()}\n${securityManager.getModeDescription()}`,
-            },
-          ],
-        };
-      }
-
-      default:
-        throw new Error(`未知的工具: ${name}`);
+    const handler = toolHandlers[name];
+    if (!handler) {
+      throw new Error(`未知的工具: ${name}`);
     }
+
+    const limiter = getLimiter(name);
+    const task = () =>
+      withTimeout(
+        Promise.resolve(handler(args)),
+        operationTimeoutMs,
+        `工具 ${name} 执行超时（>${operationTimeoutMs}ms）`
+      );
+
+    return limiter ? await limiter.run(task) : await task();
   } catch (error) {
-    return {
-      content: [
-        {
-          type: 'text',
-          text: `错误: ${error instanceof Error ? error.message : String(error)}`,
-        },
-      ],
-      isError: true,
-    };
+    return buildErrorResponse(error);
   }
 });
 
@@ -1083,12 +646,23 @@ process.on('uncaughtException', (error) => {
   process.stderr.write(`未捕获异常: ${error.message}\n`);
 });
 
-process.on('SIGINT', async () => {
+let shuttingDown = false;
+
+async function shutdown(signal: string) {
+  if (shuttingDown) {
+    return;
+  }
+
+  shuttingDown = true;
+  process.stderr.write(`收到 ${signal}，正在关闭数据库连接...\n`);
   await closeAllConnections();
   process.exit(0);
+}
+
+process.on('SIGINT', () => {
+  void shutdown('SIGINT');
 });
 
-process.on('SIGTERM', async () => {
-  await closeAllConnections();
-  process.exit(0);
+process.on('SIGTERM', () => {
+  void shutdown('SIGTERM');
 });

@@ -22,6 +22,30 @@ export interface AppConfig {
   security?: {
     mode?: 'read_only' | 'restricted' | 'full_access';
   };
+  runtime?: {
+    operationTimeoutMs?: number;
+    maxResultItems?: number;
+    maxResponseBytes?: number;
+    defaultMongoLimit?: number;
+    maxMongoLimit?: number;
+    mysqlSelectLimit?: number;
+    maxConcurrentMySql?: number;
+    maxConcurrentRedis?: number;
+    maxConcurrentMongo?: number;
+  };
+}
+
+function parseInteger(value: string | undefined, fallback: number, fieldName: string): number {
+  if (value === undefined) {
+    return fallback;
+  }
+
+  const parsed = Number.parseInt(value, 10);
+  if (Number.isNaN(parsed)) {
+    throw new Error(`环境变量 ${fieldName} 必须是整数`);
+  }
+
+  return parsed;
 }
 
 /**
@@ -32,8 +56,8 @@ export class ConfigLoader {
    * 从文件加载配置
    */
   static loadFromFile(filePath?: string): AppConfig {
-    const configPath = filePath || 
-      process.env.DB_MCP_CONFIG_PATH || 
+    const configPath = filePath ||
+      process.env.DB_MCP_CONFIG_PATH ||
       join(process.cwd(), 'config.json');
     
     try {
@@ -59,14 +83,14 @@ export class ConfigLoader {
       config.databases = config.databases || {};
       config.databases.mysql = {
         host: process.env.MYSQL_HOST,
-        port: process.env.MYSQL_PORT ? parseInt(process.env.MYSQL_PORT) : 3306,
+        port: parseInteger(process.env.MYSQL_PORT, 3306, 'MYSQL_PORT'),
         user: process.env.MYSQL_USER || 'root',
         password: process.env.MYSQL_PASSWORD || '',
         database: process.env.MYSQL_DATABASE,
         pool: {
-          min: process.env.MYSQL_POOL_MIN ? parseInt(process.env.MYSQL_POOL_MIN) : 2,
-          max: process.env.MYSQL_POOL_MAX ? parseInt(process.env.MYSQL_POOL_MAX) : 10,
-          idleTimeout: process.env.MYSQL_POOL_IDLE_TIMEOUT ? parseInt(process.env.MYSQL_POOL_IDLE_TIMEOUT) : 60000,
+          min: parseInteger(process.env.MYSQL_POOL_MIN, 2, 'MYSQL_POOL_MIN'),
+          max: parseInteger(process.env.MYSQL_POOL_MAX, 10, 'MYSQL_POOL_MAX'),
+          idleTimeout: parseInteger(process.env.MYSQL_POOL_IDLE_TIMEOUT, 60000, 'MYSQL_POOL_IDLE_TIMEOUT'),
         },
       };
     }
@@ -76,9 +100,9 @@ export class ConfigLoader {
       config.databases = config.databases || {};
       config.databases.redis = {
         host: process.env.REDIS_HOST || 'localhost',
-        port: process.env.REDIS_PORT ? parseInt(process.env.REDIS_PORT) : 6379,
+        port: parseInteger(process.env.REDIS_PORT, 6379, 'REDIS_PORT'),
         password: process.env.REDIS_PASSWORD,
-        db: process.env.REDIS_DB ? parseInt(process.env.REDIS_DB) : 0,
+        db: parseInteger(process.env.REDIS_DB, 0, 'REDIS_DB'),
         url: process.env.REDIS_URL,
       };
     }
@@ -99,6 +123,87 @@ export class ConfigLoader {
       };
     }
 
+    if (process.env.DB_MCP_OPERATION_TIMEOUT_MS) {
+      config.runtime = config.runtime || {};
+      config.runtime.operationTimeoutMs = parseInteger(
+        process.env.DB_MCP_OPERATION_TIMEOUT_MS,
+        30000,
+        'DB_MCP_OPERATION_TIMEOUT_MS'
+      );
+    }
+
+    if (process.env.DB_MCP_MAX_RESULT_ITEMS) {
+      config.runtime = config.runtime || {};
+      config.runtime.maxResultItems = parseInteger(
+        process.env.DB_MCP_MAX_RESULT_ITEMS,
+        200,
+        'DB_MCP_MAX_RESULT_ITEMS'
+      );
+    }
+
+    if (process.env.DB_MCP_MAX_RESPONSE_BYTES) {
+      config.runtime = config.runtime || {};
+      config.runtime.maxResponseBytes = parseInteger(
+        process.env.DB_MCP_MAX_RESPONSE_BYTES,
+        65536,
+        'DB_MCP_MAX_RESPONSE_BYTES'
+      );
+    }
+
+    if (process.env.DB_MCP_DEFAULT_MONGO_LIMIT) {
+      config.runtime = config.runtime || {};
+      config.runtime.defaultMongoLimit = parseInteger(
+        process.env.DB_MCP_DEFAULT_MONGO_LIMIT,
+        100,
+        'DB_MCP_DEFAULT_MONGO_LIMIT'
+      );
+    }
+
+    if (process.env.DB_MCP_MAX_MONGO_LIMIT) {
+      config.runtime = config.runtime || {};
+      config.runtime.maxMongoLimit = parseInteger(
+        process.env.DB_MCP_MAX_MONGO_LIMIT,
+        500,
+        'DB_MCP_MAX_MONGO_LIMIT'
+      );
+    }
+
+    if (process.env.DB_MCP_MYSQL_SELECT_LIMIT) {
+      config.runtime = config.runtime || {};
+      config.runtime.mysqlSelectLimit = parseInteger(
+        process.env.DB_MCP_MYSQL_SELECT_LIMIT,
+        500,
+        'DB_MCP_MYSQL_SELECT_LIMIT'
+      );
+    }
+
+    if (process.env.DB_MCP_MAX_CONCURRENT_MYSQL) {
+      config.runtime = config.runtime || {};
+      config.runtime.maxConcurrentMySql = parseInteger(
+        process.env.DB_MCP_MAX_CONCURRENT_MYSQL,
+        4,
+        'DB_MCP_MAX_CONCURRENT_MYSQL'
+      );
+    }
+
+    if (process.env.DB_MCP_MAX_CONCURRENT_REDIS) {
+      config.runtime = config.runtime || {};
+      config.runtime.maxConcurrentRedis = parseInteger(
+        process.env.DB_MCP_MAX_CONCURRENT_REDIS,
+        16,
+        'DB_MCP_MAX_CONCURRENT_REDIS'
+      );
+    }
+
+    if (process.env.DB_MCP_MAX_CONCURRENT_MONGO) {
+      config.runtime = config.runtime || {};
+      config.runtime.maxConcurrentMongo = parseInteger(
+        process.env.DB_MCP_MAX_CONCURRENT_MONGO,
+        6,
+        'DB_MCP_MAX_CONCURRENT_MONGO'
+      );
+    }
+
     return config;
   }
 
@@ -108,18 +213,19 @@ export class ConfigLoader {
   static load(): AppConfig {
     const fileConfig = this.loadFromFile();
     const envConfig = this.loadFromEnv();
+    const databases = {
+      ...fileConfig.databases,
+      ...envConfig.databases,
+      mysql: envConfig.databases?.mysql || fileConfig.databases?.mysql,
+      redis: envConfig.databases?.redis || fileConfig.databases?.redis,
+      mongodb: envConfig.databases?.mongodb || fileConfig.databases?.mongodb,
+    };
 
     // 合并配置，环境变量优先级更高
     return {
-      databases: {
-        ...fileConfig.databases,
-        ...envConfig.databases,
-        mysql: envConfig.databases?.mysql || fileConfig.databases?.mysql,
-        redis: envConfig.databases?.redis || fileConfig.databases?.redis,
-        mongodb: envConfig.databases?.mongodb || fileConfig.databases?.mongodb,
-      },
+      databases: Object.values(databases).some((value) => value !== undefined) ? databases : undefined,
       security: envConfig.security || fileConfig.security,
+      runtime: envConfig.runtime || fileConfig.runtime,
     };
   }
 }
-

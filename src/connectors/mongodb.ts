@@ -16,7 +16,12 @@ export class MongoDBConnector {
 
   async connect(): Promise<void> {
     try {
-      this.client = new MongoClient(this.config.url);
+      this.client = new MongoClient(this.config.url, {
+        maxPoolSize: 20,
+        minPoolSize: 0,
+        serverSelectionTimeoutMS: 10000,
+        maxIdleTimeMS: 60000,
+      });
       await this.client.connect();
       if (this.config.database) {
         this.db = this.client.db(this.config.database);
@@ -114,4 +119,3 @@ export class MongoDBConnector {
     }
   }
 }
-

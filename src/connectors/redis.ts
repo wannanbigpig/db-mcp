@@ -1,7 +1,7 @@
 import { createClient, RedisClientType } from 'redis';
 
 export interface RedisConfig {
-  host: string;
+  host?: string;
   port?: number;
   password?: string;
   db?: number;
@@ -45,7 +45,9 @@ export class RedisConnector {
 
   async disconnect(): Promise<void> {
     if (this.client) {
-      await this.client.quit();
+      if (this.client.isOpen) {
+        await this.client.quit();
+      }
       this.client = null;
     }
   }
@@ -75,11 +77,23 @@ export class RedisConnector {
     return await this.client.del(key);
   }
 
-  async keys(pattern: string): Promise<string[]> {
+  async scanKeys(pattern: string, count: number = 100, limit: number = 500): Promise<string[]> {
     if (!this.client) {
       throw new Error('Redis 未连接，请先调用 connect()');
     }
-    return await this.client.keys(pattern);
+    const keys: string[] = [];
+
+    for await (const key of this.client.scanIterator({
+      MATCH: pattern,
+      COUNT: count,
+    })) {
+      keys.push(key);
+      if (keys.length >= limit) {
+        break;
+      }
+    }
+
+    return keys;
   }
 
   async exists(key: string): Promise<number> {
