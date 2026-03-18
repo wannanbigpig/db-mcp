@@ -25,7 +25,7 @@
 
 <br />
 
-## Why This Exists
+## 为什么做这个项目
 
 大模型很擅长“查数据、做归纳、解释结果”，但直接把数据库完全暴露给模型，通常会遇到几个问题：
 
@@ -36,18 +36,18 @@
 
 `db-mcp` 的目标很明确：把数据库接入 AI 的过程做成一个更稳、更可控、也更适合放到真实工作流里的 MCP 服务。
 
-## Highlights
+## 核心特性
 
 | 能力 | 说明 |
 | --- | --- |
-| Multi-DB | 同时支持 `MySQL`、`Redis`、`MongoDB` |
-| Safer by default | 默认 `read_only`，避免模型误写库 |
-| Runtime guardrails | 超时、响应裁剪、并发限制、Mongo limit、MySQL `SQL_SELECT_LIMIT` |
-| Connection awareness | 支持预配置连接、手动连接、实时连接健康检查 |
-| Ops visibility | 可直接查看连接状态、并发排队、连接池摘要 |
-| MCP-ready | 标准 MCP Server，可接入 Cursor、Claude Desktop 等客户端 |
+| 多数据库支持 | 同时支持 `MySQL`、`Redis`、`MongoDB` |
+| 默认更安全 | 默认 `read_only`，避免模型误写库 |
+| 运行时保护 | 超时、响应裁剪、并发限制、Mongo 查询 limit、MySQL `SQL_SELECT_LIMIT` |
+| 连接感知 | 支持预配置连接、手动连接、实时连接健康检查 |
+| 运维可观测 | 可直接查看连接状态、并发排队、连接池摘要 |
+| 可接入 MCP 客户端 | 标准 MCP Server，可接入 Cursor、Claude Desktop 等客户端 |
 
-## Preview
+## 示例预览
 
 <table>
   <tr>
@@ -60,9 +60,9 @@
   </tr>
 </table>
 
-## Quick Start
+## 快速开始
 
-### 1. Install
+### 1. 安装
 
 ```bash
 git clone git@github_pig:wannanbigpig/db-mcp.git
@@ -76,7 +76,7 @@ npm run build
 - `Node.js >= 18`
 - `npm >= 9`
 
-### 2. Run
+### 2. 运行
 
 ```bash
 npm run dev
@@ -90,7 +90,7 @@ node dist/index.js
 
 如果终端输出 `db-mcp 服务器已启动`，说明服务已正常启动。
 
-### 3. Optional Config
+### 3. 可选配置
 
 ```bash
 cp config.json.example config.json
@@ -98,13 +98,42 @@ cp config.json.example config.json
 
 编辑 `config.json`，填入你的数据库连接信息。推荐优先使用预配置连接，而不是把数据库密码作为工具参数传给模型。
 
-## MCP Client Setup
+## MCP 客户端配置
 
 `db-mcp` 是标准 MCP 服务，可接入支持 MCP 的客户端，例如：
 
+- `Codex`
 - `Cursor`
 - `Claude Desktop`
 - 其他兼容 MCP 的工具
+
+### Codex
+
+在 `~/.codex/config.toml` 中加入：
+
+```toml
+[mcp_servers.db-mcp]
+command = "node"
+args = ["/path/to/db-mcp/dist/index.js"]
+enabled = true
+
+[mcp_servers.db-mcp.env]
+DB_MCP_SECURITY_MODE = "read_only"
+DB_MCP_CONFIG_PATH = "/path/to/config.json"
+DB_MCP_MAX_RESPONSE_BYTES = "65536"
+DB_MCP_MYSQL_SELECT_LIMIT = "500"
+```
+
+也可以直接使用命令添加：
+
+```bash
+codex mcp add db-mcp \
+  --env DB_MCP_SECURITY_MODE=read_only \
+  --env DB_MCP_CONFIG_PATH=/path/to/config.json \
+  --env DB_MCP_MAX_RESPONSE_BYTES=65536 \
+  --env DB_MCP_MYSQL_SELECT_LIMIT=500 \
+  -- node /path/to/db-mcp/dist/index.js
+```
 
 ### Cursor
 
@@ -139,9 +168,9 @@ cp config.json.example config.json
 }
 ```
 
-把 `/path/to/db-mcp/dist/index.js` 替换成你的真实路径即可。
+把 `/path/to/db-mcp/dist/index.js` 和 `/path/to/config.json` 替换成你的真实路径即可。
 
-## Core Ideas
+## 设计理念
 
 ### 预配置连接优先
 
@@ -179,7 +208,7 @@ cp config.json.example config.json
 - MySQL 连接池摘要
 - 各类工具的并发执行和排队情况
 
-## Security Modes
+## 安全模式
 
 通过环境变量 `DB_MCP_SECURITY_MODE` 或工具 `set_security_mode` 进行设置。
 
@@ -217,9 +246,9 @@ cp config.json.example config.json
 - 只在确实需要写数据时切到 `restricted`
 - 只有明确知道要执行高风险操作时，才使用 `full_access`
 
-## Database Config
+## 数据库配置
 
-### Example `config.json`
+### `config.json` 示例
 
 ```json
 {
@@ -253,13 +282,13 @@ cp config.json.example config.json
 }
 ```
 
-### Dynamic Connect
+### 动态连接
 
 除了预配置连接，也支持使用 `*_connect` 工具在运行时手动连接，使用 `*_disconnect` 断开。
 
 如果你担心凭证暴露给模型，优先使用预配置连接。
 
-## Tooling Surface
+## 工具一览
 
 ### MySQL
 
@@ -296,51 +325,53 @@ cp config.json.example config.json
 - `mongodb_list_collections`
 - `mongodb_disconnect`
 
-### Runtime / Security
+### 运行时 / 安全
 
 - `set_security_mode`
 - `get_security_mode`
 - `server_runtime_status`
 
-## Practical Examples
+## 工具调用示例
 
-### MySQL Query
+以下示例展示各个工具常见的调用参数格式。
+
+### MySQL 查询
 
 ```json
 { "sql": "SELECT * FROM users WHERE id = ?", "params": [1] }
 ```
 
-### MySQL Insert
+### MySQL 插入
 
 ```json
 { "table": "users", "data": { "name": "John", "email": "john@example.com" } }
 ```
 
-### Redis Set
+### Redis 写入
 
 ```json
 { "key": "user:1", "value": "John Doe", "ttl": 3600 }
 ```
 
-### Redis Keys Scan
+### Redis 键扫描
 
 ```json
 { "pattern": "user:*", "count": 100, "limit": 200 }
 ```
 
-### MongoDB Find
+### MongoDB 查询
 
 ```json
 { "collection": "users", "filter": { "age": { "$gte": 18 } }, "limit": 10 }
 ```
 
-### Runtime Status
+### 运行状态
 
 ```json
 {}
 ```
 
-## Observability
+## 可观测性
 
 `server_runtime_status` 可用于快速排查：
 
@@ -351,7 +382,7 @@ cp config.json.example config.json
 - 当前服务的保护阈值是多少
 - 当前数据库连接是否真的还活着
 
-## Development
+## 开发
 
 ```bash
 npm install
@@ -361,7 +392,7 @@ npm run watch
 npm test
 ```
 
-## FAQ
+## 常见问题
 
 <details>
   <summary><strong>为什么建议优先使用预配置连接？</strong></summary>
@@ -391,10 +422,10 @@ npm test
   <img src="https://img.shields.io/badge/BUY_ME_A_COFFEE-%E6%94%AF%E6%8C%81%E4%BD%9C%E8%80%85-f08a24?style=for-the-badge&logo=buymeacoffee&logoColor=ffdd00&labelColor=4a4a4a" alt="支持作者" />
 </a>
 
-## License
+## 许可证
 
 MIT
 
-## Contributing
+## 参与贡献
 
 欢迎提交 Issue 和 Pull Request。

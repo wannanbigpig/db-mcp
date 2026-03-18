@@ -104,9 +104,38 @@ By default, the server loads `./config.json`. You can point it to another file w
 
 `db-mcp` is a standard MCP server and can be used from clients such as:
 
+- `Codex`
 - `Cursor`
 - `Claude Desktop`
 - other MCP-compatible tools
+
+### Codex
+
+Add this to `~/.codex/config.toml`:
+
+```toml
+[mcp_servers.db-mcp]
+command = "node"
+args = ["/path/to/db-mcp/dist/index.js"]
+enabled = true
+
+[mcp_servers.db-mcp.env]
+DB_MCP_SECURITY_MODE = "read_only"
+DB_MCP_CONFIG_PATH = "/path/to/config.json"
+DB_MCP_MAX_RESPONSE_BYTES = "65536"
+DB_MCP_MYSQL_SELECT_LIMIT = "500"
+```
+
+Or add it with the CLI:
+
+```bash
+codex mcp add db-mcp \
+  --env DB_MCP_SECURITY_MODE=read_only \
+  --env DB_MCP_CONFIG_PATH=/path/to/config.json \
+  --env DB_MCP_MAX_RESPONSE_BYTES=65536 \
+  --env DB_MCP_MYSQL_SELECT_LIMIT=500 \
+  -- node /path/to/db-mcp/dist/index.js
+```
 
 ### Cursor
 
@@ -141,7 +170,7 @@ By default, the server loads `./config.json`. You can point it to another file w
 }
 ```
 
-Replace `/path/to/db-mcp/dist/index.js` with your actual path.
+Replace `/path/to/db-mcp/dist/index.js` and `/path/to/config.json` with your actual paths.
 
 ## Core Ideas
 
