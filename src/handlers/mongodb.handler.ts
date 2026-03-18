@@ -49,11 +49,19 @@ export class MongoDBHandler {
     if (rawArgs.database !== undefined) {
       mongodbConfig.database = assertString(rawArgs.database, 'database');
     }
-    if (this.connector) {
-      await this.connector.disconnect();
+    const nextConnector = new MongoDBConnector(mongodbConfig);
+    await nextConnector.connect();
+
+    const previousConnector = this.connector;
+    try {
+      if (previousConnector) {
+        await previousConnector.disconnect();
+      }
+      this.connector = nextConnector;
+    } catch (error) {
+      await nextConnector.disconnect().catch(() => undefined);
+      throw error;
     }
-    this.connector = new MongoDBConnector(mongodbConfig);
-    await this.connector.connect();
     return buildSuccessResponse(`成功连接到 MongoDB 数据库: ${mongodbConfig.url}`);
   }
 

@@ -21,6 +21,7 @@ import { SecurityHandler } from './handlers/security.handler.js';
 import { buildErrorResponse, configureResponseLimits } from './utils/response.js';
 import { withTimeout } from './utils/async.js';
 import { ConcurrencyLimiter } from './utils/concurrency.js';
+import { isConnectorHealthy } from './utils/connection-status.js';
 
 // 加载配置
 const appConfig = ConfigLoader.load();
@@ -66,6 +67,7 @@ const securityManager = new SecurityManager(getSecurityMode());
 // 初始化各个处理器
 const mysqlHandler = new MySQLHandler(securityManager, {
   selectLimit: mysqlSelectLimit,
+  hasPreconfiguredConnection: appConfig.databases?.mysql !== undefined,
 });
 const redisHandler = new RedisHandler(securityManager);
 const mongodbHandler = new MongoDBHandler(securityManager, {
@@ -128,7 +130,16 @@ async function initializePreconfiguredConnections() {
   }
 }
 
-function getRuntimeStatus() {
+async function getRuntimeStatus() {
+  const mysqlConnector = mysqlHandler.getConnector();
+  const redisConnector = redisHandler.getConnector();
+  const mongodbConnector = mongodbHandler.getConnector();
+  const [mysqlConnected, redisConnected, mongodbConnected] = await Promise.all([
+    isConnectorHealthy(mysqlConnector),
+    isConnectorHealthy(redisConnector),
+    isConnectorHealthy(mongodbConnector),
+  ]);
+
   return {
     security: {
       mode: securityManager.getMode(),
@@ -150,18 +161,33 @@ function getRuntimeStatus() {
     connections: {
       mysql: {
         configured: appConfig.databases?.mysql !== undefined,
-        connected: mysqlHandler.getConnector() !== null,
-        pool: mysqlHandler.getConnector()?.getPoolStats() ?? null,
+        connected: mysqlConnected,
+        pool: mysqlConnector?.getPoolStats() ?? null,
       },
       redis: {
         configured: appConfig.databases?.redis !== undefined,
-        connected: redisHandler.getConnector() !== null,
+        connected: redisConnected,
       },
       mongodb: {
         configured: appConfig.databases?.mongodb !== undefined,
-        connected: mongodbHandler.getConnector() !== null,
+        connected: mongodbConnected,
       },
     },
+  };
+}
+
+async function getMySQLConnectionStatus() {
+  const mysqlConnector = mysqlHandler.getConnector();
+  const connected = await isConnectorHealthy(mysqlConnector);
+
+  return {
+    configured: appConfig.databases?.mysql !== undefined,
+    connected,
+    pool: mysqlConnector?.getPoolStats() ?? null,
+    guidance:
+      appConfig.databases?.mysql !== undefined
+        ? '服务启动时已预配置 MySQL。执行 mysql_query、mysql_insert、mysql_update、mysql_delete 时会优先复用默认连接，通常无需先调用 mysql_connect。'
+        : '服务启动时未预配置 MySQL。需要先调用 mysql_connect 建立连接后，才能执行 MySQL 查询或写入工具。',
   };
 }
 
@@ -190,7 +216,7 @@ const tools: Tool[] = [
   // MySQL 工具
   {
     name: 'mysql_connect',
-    description: '连接到 MySQL 数据库（支持连接池）',
+    description: '连接到 MySQL 数据库（支持连接池）。仅在服务启动时未预配置 MySQL，或你需要覆盖当前默认连接时使用。',
     inputSchema: {
       type: 'object',
       properties: {
@@ -215,7 +241,7 @@ const tools: Tool[] = [
   },
   {
     name: 'mysql_query',
-    description: '执行 MySQL SQL 语句（支持 SELECT、INSERT、UPDATE、DELETE 等所有 SQL 操作）',
+    description: '执行 MySQL SQL 语句（支持 SELECT、INSERT、UPDATE、DELETE 等所有 SQL 操作）。如果服务启动时已预配置 MySQL，本工具会直接复用默认连接，无需先调用 mysql_connect。',
     inputSchema: {
       type: 'object',
       properties: {
@@ -231,7 +257,7 @@ const tools: Tool[] = [
   },
   {
     name: 'mysql_insert',
-    description: '执行 MySQL INSERT 插入操作',
+    description: '执行 MySQL INSERT 插入操作。若服务启动时已预配置 MySQL，会直接使用默认连接。',
     inputSchema: {
       type: 'object',
       properties: {
@@ -246,7 +272,7 @@ const tools: Tool[] = [
   },
   {
     name: 'mysql_update',
-    description: '执行 MySQL UPDATE 更新操作',
+    description: '执行 MySQL UPDATE 更新操作。若服务启动时已预配置 MySQL，会直接使用默认连接。',
     inputSchema: {
       type: 'object',
       properties: {
@@ -265,7 +291,7 @@ const tools: Tool[] = [
   },
   {
     name: 'mysql_delete',
-    description: '执行 MySQL DELETE 删除操作',
+    description: '执行 MySQL DELETE 删除操作。若服务启动时已预配置 MySQL，会直接使用默认连接。',
     inputSchema: {
       type: 'object',
       properties: {
@@ -280,7 +306,7 @@ const tools: Tool[] = [
   },
   {
     name: 'mysql_disconnect',
-    description: '断开 MySQL 数据库连接',
+    description: '断开当前 MySQL 数据库连接，包括启动时已建立的默认连接。',
     inputSchema: {
       type: 'object',
       properties: {},
@@ -288,7 +314,15 @@ const tools: Tool[] = [
   },
   {
     name: 'mysql_pool_status',
-    description: '获取 MySQL 连接池状态（如果使用连接池）',
+    description: '获取当前 MySQL 连接池状态（如果使用连接池）。若服务启动时已预配置并启用了连接池，也会返回默认连接的状态。',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+    },
+  },
+  {
+    name: 'mysql_connection_status',
+    description: '获取当前 MySQL 默认连接状态。查询前可先调用此工具判断服务启动时的预配置连接是否已可用；若已连接，直接使用 mysql_query 等工具，无需先调用 mysql_connect。',
     inputSchema: {
       type: 'object',
       properties: {},
@@ -536,7 +570,7 @@ const tools: Tool[] = [
   },
   {
     name: 'server_runtime_status',
-    description: '获取服务运行时状态，包括并发限制、队列、响应限制、超时和连接状态',
+    description: '获取服务运行时状态，包括并发限制、队列、响应限制、超时和连接状态。查询数据库前，可先查看 connections.mysql / redis / mongodb 判断启动时默认连接是否已可用。',
     inputSchema: {
       type: 'object',
       properties: {},
@@ -553,6 +587,14 @@ const toolHandlers: Record<string, (args: Record<string, unknown>) => Promise<To
   mysql_query: (args) => mysqlHandler.handleQuery(args),
   mysql_disconnect: () => mysqlHandler.handleDisconnect(),
   mysql_pool_status: () => mysqlHandler.handlePoolStatus(),
+  mysql_connection_status: async () => ({
+    content: [
+      {
+        type: 'text',
+        text: JSON.stringify(await getMySQLConnectionStatus(), null, 2),
+      },
+    ],
+  }),
   mysql_insert: (args) => mysqlHandler.handleInsert(args),
   mysql_update: (args) => mysqlHandler.handleUpdate(args),
   mysql_delete: (args) => mysqlHandler.handleDelete(args),
@@ -576,11 +618,11 @@ const toolHandlers: Record<string, (args: Record<string, unknown>) => Promise<To
   mongodb_disconnect: () => mongodbHandler.handleDisconnect(),
   set_security_mode: (args) => securityHandler.handleSetMode(args),
   get_security_mode: () => securityHandler.handleGetMode(),
-  server_runtime_status: () => ({
+  server_runtime_status: async () => ({
     content: [
       {
         type: 'text',
-        text: JSON.stringify(getRuntimeStatus(), null, 2),
+        text: JSON.stringify(await getRuntimeStatus(), null, 2),
       },
     ],
   }),

@@ -7,6 +7,7 @@ import { assertNonEmptyRecord, assertRecord, assertString, assertArray, getOptio
 
 interface MySQLHandlerRuntimeOptions {
   selectLimit?: number;
+  hasPreconfiguredConnection?: boolean;
 }
 
 export class MySQLHandler {
@@ -18,6 +19,7 @@ export class MySQLHandler {
     this.securityManager = securityManager;
     this.runtimeOptions = {
       selectLimit: runtimeOptions.selectLimit ?? 500,
+      hasPreconfiguredConnection: runtimeOptions.hasPreconfiguredConnection ?? false,
     };
   }
 
@@ -31,7 +33,12 @@ export class MySQLHandler {
 
   requireConnector(): MySQLConnector {
     if (!this.connector) {
-      throw new Error('MySQL 未连接，请先使用 mysql_connect 连接数据库');
+      if (this.runtimeOptions.hasPreconfiguredConnection) {
+        throw new Error(
+          'MySQL 默认连接当前不可用。若这是启动时的预配置连接，请先调用 server_runtime_status 检查 connections.mysql 状态；仅在需要覆盖默认连接或手动重连时再使用 mysql_connect。'
+        );
+      }
+      throw new Error('MySQL 未连接。若服务启动时未预配置 MySQL，请先使用 mysql_connect 建立连接。');
     }
     return this.connector;
   }
@@ -60,15 +67,21 @@ export class MySQLHandler {
       mysqlConfig.usePool = rawConfig.usePool === true;
     }
     const usePool = mysqlConfig.usePool === true && mysqlConfig.pool !== undefined;
-
-    if (this.connector) {
-      await this.connector.disconnect();
-    }
-
-    this.connector = new MySQLConnector(mysqlConfig, usePool, {
+    const nextConnector = new MySQLConnector(mysqlConfig, usePool, {
       selectLimit: this.runtimeOptions.selectLimit,
     });
-    await this.connector.connect();
+    await nextConnector.connect();
+
+    const previousConnector = this.connector;
+    try {
+      if (previousConnector) {
+        await previousConnector.disconnect();
+      }
+      this.connector = nextConnector;
+    } catch (error) {
+      await nextConnector.disconnect().catch(() => undefined);
+      throw error;
+    }
     
     return buildSuccessResponse(
       `成功连接到 MySQL 数据库: ${mysqlConfig.host}:${mysqlConfig.port || 3306}${usePool ? '（使用连接池）' : ''}`

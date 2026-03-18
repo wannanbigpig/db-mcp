@@ -6,6 +6,7 @@ import { ConfigLoader } from '../config/config-loader.js';
 import { SecurityManager, SecurityMode } from '../security/security-manager.js';
 import { withTimeout } from '../utils/async.js';
 import { ConcurrencyLimiter } from '../utils/concurrency.js';
+import { isConnectorHealthy } from '../utils/connection-status.js';
 
 test('buildSuccessResponse serializes bigint and circular references', () => {
   configureResponseLimits({ maxResultItems: 200, maxResponseBytes: 65536 });
@@ -123,4 +124,18 @@ test('ConcurrencyLimiter queues tasks beyond configured concurrency', async () =
 
   assert.deepEqual(order, ['start-1', 'end-1', 'start-2', 'end-2']);
   assert.deepEqual(limiter.snapshot(), { active: 0, queued: 0, maxConcurrent: 1 });
+});
+
+test('isConnectorHealthy reflects connector health and guards failures', async () => {
+  assert.equal(await isConnectorHealthy(null), false);
+  assert.equal(await isConnectorHealthy({ testConnection: async () => true }), true);
+  assert.equal(await isConnectorHealthy({ testConnection: async () => false }), false);
+  assert.equal(
+    await isConnectorHealthy({
+      testConnection: async () => {
+        throw new Error('boom');
+      },
+    }),
+    false
+  );
 });

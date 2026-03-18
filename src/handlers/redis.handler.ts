@@ -48,12 +48,19 @@ export class RedisHandler {
     if (rawArgs.db !== undefined) {
       redisConfig.db = getOptionalNumber(rawArgs.db, 'db');
     }
-    if (this.connector) {
-      await this.connector.disconnect();
+    const nextConnector = new RedisConnector(redisConfig);
+    await nextConnector.connect();
+
+    const previousConnector = this.connector;
+    try {
+      if (previousConnector) {
+        await previousConnector.disconnect();
+      }
+      this.connector = nextConnector;
+    } catch (error) {
+      await nextConnector.disconnect().catch(() => undefined);
+      throw error;
     }
-    
-    this.connector = new RedisConnector(redisConfig);
-    await this.connector.connect();
     
     const parsedUrl = redisConfig.url ? new URL(redisConfig.url) : null;
     const host = parsedUrl?.hostname ?? redisConfig.host;

@@ -296,7 +296,7 @@ npm run dev
 ### MySQL 工具
 
 #### `mysql_connect`
-连接到 MySQL 数据库（支持连接池）。如果已通过预配置连接，此工具会重新连接。
+连接到 MySQL 数据库（支持连接池）。仅在服务启动时未预配置 MySQL，或你需要覆盖当前默认连接时使用。如果已通过预配置连接，此工具会重新连接。
 
 **参数:**
 - `host` (必需): MySQL 主机地址
@@ -311,7 +311,7 @@ npm run dev
   - `idleTimeout`: 空闲超时时间（毫秒），默认 60000
 
 #### `mysql_query`
-执行 MySQL SQL 语句（支持所有 SQL 操作，包括表结构变更）。
+执行 MySQL SQL 语句（支持所有 SQL 操作，包括表结构变更）。如果服务启动时已预配置 MySQL，本工具会直接复用默认连接，无需先调用 `mysql_connect`。
 
 **参数:**
 - `sql` (必需): SQL 语句
@@ -325,7 +325,7 @@ npm run dev
 ```
 
 #### `mysql_insert` / `mysql_update` / `mysql_delete`
-更友好的 API，自动构建 SQL，使用参数化查询防止 SQL 注入。
+更友好的 API，自动构建 SQL，使用参数化查询防止 SQL 注入。如果服务启动时已预配置 MySQL，这些工具会直接复用默认连接。
 
 **参数:**
 - `table` (必需): 表名
@@ -340,10 +340,21 @@ npm run dev
 ```
 
 #### `mysql_disconnect`
-断开 MySQL 数据库连接。
+断开当前 MySQL 数据库连接，包括启动时已建立的默认连接。
+
+#### `mysql_connection_status`
+获取当前 MySQL 默认连接状态。该工具会实时探测当前连接是否可用；若已连接，直接使用 `mysql_query`、`mysql_insert`、`mysql_update`、`mysql_delete`，无需先调用 `mysql_connect`。
+
+**参数:** 无
+
+**返回:** 当前 MySQL 连接摘要，包括：
+- 是否存在启动时预配置 `configured`
+- 当前是否已连接 `connected`
+- 连接池状态 `pool`（未启用时为 `null`）
+- 建议下一步操作 `guidance`
 
 #### `mysql_pool_status`
-获取 MySQL 连接池状态（仅在使用了连接池时有效）。
+获取当前 MySQL 连接池状态（如果使用连接池）。若服务启动时已预配置并启用了连接池，也会返回默认连接的状态。
 
 **参数:** 无
 
@@ -384,7 +395,7 @@ npm run dev
 
 - `set_security_mode`: 设置安全模式（参数: `mode` - `read_only`/`restricted`/`full_access`）
 - `get_security_mode`: 获取当前安全模式
-- `server_runtime_status`: 获取服务运行时状态，包括超时、响应限制、并发队列、连接状态和 MySQL 连接池状态
+- `server_runtime_status`: 获取服务运行时状态，包括超时、响应限制、并发队列、连接状态和 MySQL 连接池状态；其中 `connections.*.connected` 会实时探测对应数据库是否仍然可用
 
 ## 运行时观测
 
