@@ -9,6 +9,9 @@
 - `redis-query-example.png` - Redis 查询示例，展示如何连接 Redis 数据库并查询键
 - `mysql-statistics-example.png` - MySQL 统计查询示例，展示如何执行复杂的数据统计和分析
 - `mongodb-count-example.png` - MongoDB 统计查询示例，展示如何统计集合中的文档数量
+- `alipay.jpg` - 支付宝收款码，用于 README 赞助区块
+- `wechat_pay.jpg` - 微信收款码，用于 README 赞助区块
+- `eth.jpg` - ETH 收款码，用于 README 赞助区块
 
 ## 如何添加截图
 
@@ -21,4 +24,3 @@
 - 建议使用 PNG 格式，保证清晰度
 - 截图宽度建议在 800-1200 像素之间
 - 确保截图内容清晰可读
-

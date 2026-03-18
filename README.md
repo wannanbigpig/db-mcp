@@ -1,113 +1,105 @@
-# db-mcp
+# <div align="center">db-mcp</div>
 
-一个 Model Context Protocol (MCP) 服务器，用于连接和查询 MySQL、Redis 和 MongoDB 数据库。
+<div align="center">
+  <strong>中文</strong> | <a href="./README.en.md">English</a>
+</div>
 
-## 使用效果截图
+<br />
 
-### Redis 查询示例
+<div align="center">
+  <strong>让 AI 安全地连上你的 MySQL、Redis、MongoDB</strong>
+</div>
 
-![Redis 查询示例](screenshots/redis-query-example.png)
+<div align="center">
+  一个面向 <code>Model Context Protocol</code> 的数据库 MCP Server，支持预配置连接、运行时保护、连接状态观测和分级安全模式。
+</div>
 
-### MySQL 统计查询示例
+<br />
 
-![MySQL 统计查询示例](screenshots/mysql-statistics-example.png)
+<div align="center">
+  <img src="https://img.shields.io/github/license/wannanbigpig/db-mcp?style=for-the-badge" alt="license" />
+  <img src="https://img.shields.io/github/actions/workflow/status/wannanbigpig/db-mcp/node.js.yml?branch=main&style=for-the-badge" alt="build" />
+  <img src="https://img.shields.io/github/stars/wannanbigpig/db-mcp?style=for-the-badge" alt="stars" />
+  <img src="https://img.shields.io/github/last-commit/wannanbigpig/db-mcp?style=for-the-badge" alt="last commit" />
+</div>
 
-### MongoDB 统计查询示例
+<br />
 
-![MongoDB 统计查询示例](screenshots/mongodb-count-example.png)
+## Why This Exists
 
+大模型很擅长“查数据、做归纳、解释结果”，但直接把数据库完全暴露给模型，通常会遇到几个问题：
 
-## 功能特性
+- 凭证不想反复传给模型
+- 查询结果可能过大，把上下文和服务一起拖垮
+- 写操作需要分级控制，不能一把梭哈
+- 连接掉了、池满了、请求排队了，调用方却看不出来
 
-- ✅ **MySQL 支持**: 连接、查询、执行 SQL 语句
-- ✅ **Redis 支持**: 键值操作、哈希操作、模式匹配
-- ✅ **MongoDB 支持**: 文档查询、插入、更新、删除
-- 🔒 **安全模式**: 支持只读模式、限制模式、完全开发模式三种安全级别
+`db-mcp` 的目标很明确：把数据库接入 AI 的过程做成一个更稳、更可控、也更适合放到真实工作流里的 MCP 服务。
 
-## 安装
+## Highlights
 
-### 前置要求
+| 能力 | 说明 |
+| --- | --- |
+| Multi-DB | 同时支持 `MySQL`、`Redis`、`MongoDB` |
+| Safer by default | 默认 `read_only`，避免模型误写库 |
+| Runtime guardrails | 超时、响应裁剪、并发限制、Mongo limit、MySQL `SQL_SELECT_LIMIT` |
+| Connection awareness | 支持预配置连接、手动连接、实时连接健康检查 |
+| Ops visibility | 可直接查看连接状态、并发排队、连接池摘要 |
+| MCP-ready | 标准 MCP Server，可接入 Cursor、Claude Desktop 等客户端 |
 
-- Node.js >= 18.0.0
-- npm >= 9.0.0 或 yarn >= 1.22.0
+## Preview
 
-### 安装步骤
+| Redis | MySQL | MongoDB |
+| --- | --- | --- |
+| ![Redis 查询示例](screenshots/redis-query-example.png) | ![MySQL 统计查询示例](screenshots/mysql-statistics-example.png) | ![MongoDB 统计查询示例](screenshots/mongodb-count-example.png) |
+
+## Quick Start
+
+### 1. Install
 
 ```bash
-# 克隆仓库
 git clone git@github_pig:wannanbigpig/db-mcp.git
 cd db-mcp
-
-# 安装依赖
 npm install
-
-# 构建项目
 npm run build
 ```
 
-### 验证安装
+要求：
 
-构建完成后，可以运行以下命令验证安装：
+- `Node.js >= 18`
+- `npm >= 9`
+
+### 2. Run
 
 ```bash
-# 开发模式运行（测试）
 npm run dev
+```
 
-# 或直接运行构建后的文件
+或：
+
+```bash
 node dist/index.js
 ```
 
-如果看到 "db-mcp 服务器已启动" 的提示，说明安装成功。
+如果终端输出 `db-mcp 服务器已启动`，说明服务已正常启动。
 
-### 配置数据库连接（可选）
+### 3. Optional Config
 
-安装完成后，可以选择配置数据库连接：
-
-1. 复制示例配置文件：
 ```bash
 cp config.json.example config.json
 ```
 
-2. 编辑 `config.json`，填入你的数据库连接信息
+编辑 `config.json`，填入你的数据库连接信息。推荐优先使用预配置连接，而不是把数据库密码作为工具参数传给模型。
 
-详细配置说明请参考[数据库连接配置](#数据库连接配置)部分。
+## MCP Client Setup
 
-### 故障排查
+`db-mcp` 是标准 MCP 服务，可接入支持 MCP 的客户端，例如：
 
-如果安装或运行遇到问题：
+- `Cursor`
+- `Claude Desktop`
+- 其他兼容 MCP 的工具
 
-1. **检查 Node.js 版本**：
-```bash
-node --version  # 应该 >= 18.0.0
-```
-
-2. **清理并重新安装**：
-```bash
-rm -rf node_modules package-lock.json
-npm install
-npm run build
-```
-
-3. **检查构建输出**：
-```bash
-ls -la dist/  # 应该看到编译后的 .js 文件
-```
-
-## 使用方法
-
-db-mcp 是一个标准的 MCP (Model Context Protocol) 服务器，可以在任何支持 MCP 的客户端中使用，包括但不限于：
-
-- **Cursor** - AI 代码编辑器
-- **Claude Desktop** - Anthropic 的 Claude 桌面应用
-- **其他支持 MCP 的客户端**
-
-### 配置 MCP 服务器
-
-在你的 MCP 客户端配置文件中添加 db-mcp 服务器配置。配置格式因客户端而异：
-
-#### Cursor 配置示例
-
-在 Cursor 的设置文件（通常是 `~/.cursor/mcp.json` 或 Cursor 设置中的 MCP 配置）中添加：
+### Cursor
 
 ```json
 {
@@ -124,9 +116,7 @@ db-mcp 是一个标准的 MCP (Model Context Protocol) 服务器，可以在任�
 }
 ```
 
-#### Claude Desktop 配置示例
-
-在 Claude Desktop 的配置文件（通常是 `~/Library/Application Support/Claude/claude_desktop_config.json`）中添加：
+### Claude Desktop
 
 ```json
 {
@@ -142,108 +132,88 @@ db-mcp 是一个标准的 MCP (Model Context Protocol) 服务器，可以在任�
 }
 ```
 
-**注意**：请将 `/path/to/db-mcp/dist/index.js` 替换为你的实际安装路径。
+把 `/path/to/db-mcp/dist/index.js` 替换成你的真实路径即可。
 
-### 预配置数据库连接
+## Core Ideas
 
-支持通过 `config.json` 或环境变量预配置数据库连接。复制 `config.json.example` 为 `config.json` 并编辑即可。
+### 预配置连接优先
 
-环境变量示例：`MYSQL_HOST`、`MYSQL_USER`、`MYSQL_PASSWORD`、`REDIS_HOST`、`MONGODB_URL` 等。
+服务启动时可从 `config.json` 或环境变量自动建立数据库连接。这样调用 MCP 的 AI 不需要接触数据库密码。
 
-### 运行时保护参数
+支持的典型环境变量：
 
-除了数据库连接信息，还支持通过环境变量配置运行时保护策略：
+- `MYSQL_HOST`
+- `MYSQL_USER`
+- `MYSQL_PASSWORD`
+- `REDIS_HOST`
+- `REDIS_URL`
+- `MONGODB_URL`
 
-- `DB_MCP_OPERATION_TIMEOUT_MS`: 单次工具调用超时时间，默认 `30000`
-- `DB_MCP_MAX_RESULT_ITEMS`: 响应中数组结果最多保留多少项，默认 `200`
-- `DB_MCP_MAX_RESPONSE_BYTES`: 响应文本最大字节数，默认 `65536`
-- `DB_MCP_DEFAULT_MONGO_LIMIT`: `mongodb_find` 默认 `limit`，默认 `100`
-- `DB_MCP_MAX_MONGO_LIMIT`: `mongodb_find` 允许的最大 `limit`，默认 `500`
-- `DB_MCP_MYSQL_SELECT_LIMIT`: MySQL 会话级 `SQL_SELECT_LIMIT`，默认 `500`
-- `DB_MCP_MAX_CONCURRENT_MYSQL`: MySQL 工具最大并发数，默认 `4`
-- `DB_MCP_MAX_CONCURRENT_REDIS`: Redis 工具最大并发数，默认 `16`
-- `DB_MCP_MAX_CONCURRENT_MONGO`: MongoDB 工具最大并发数，默认 `6`
+### 运行时保护不是装饰
 
-这些限制会帮助服务避免被大结果集、慢查询或突发并发拖垮。
+以下参数用于防止 MCP 服务被慢查询、大结果集或突发并发打爆：
 
-### 安全模式
+- `DB_MCP_OPERATION_TIMEOUT_MS`
+- `DB_MCP_MAX_RESULT_ITEMS`
+- `DB_MCP_MAX_RESPONSE_BYTES`
+- `DB_MCP_DEFAULT_MONGO_LIMIT`
+- `DB_MCP_MAX_MONGO_LIMIT`
+- `DB_MCP_MYSQL_SELECT_LIMIT`
+- `DB_MCP_MAX_CONCURRENT_MYSQL`
+- `DB_MCP_MAX_CONCURRENT_REDIS`
+- `DB_MCP_MAX_CONCURRENT_MONGO`
 
-通过 `DB_MCP_SECURITY_MODE` 环境变量或 `set_security_mode` 工具设置：
+### 连接状态可观测
 
-- **read_only** (默认): 只允许读操作，适合线上排查和只读分析
-- **restricted**: 允许安全范围内的写操作，适合日常开发调试
-- **full_access**: 不做操作级限制，适合本地开发或明确受控的环境
+你可以通过工具直接查看：
 
-三种模式的区别如下。
+- 当前数据库是否配置过
+- 当前连接是否仍然可用
+- MySQL 连接池摘要
+- 各类工具的并发执行和排队情况
 
-#### `read_only`
+## Security Modes
 
-最保守的模式，只允许查询，不允许任何数据修改或结构变更。
+通过环境变量 `DB_MCP_SECURITY_MODE` 或工具 `set_security_mode` 进行设置。
 
-- MySQL:
-  - 允许: `SELECT`、`SHOW`、`DESCRIBE`、`DESC`、`EXPLAIN`
-  - 禁止: `INSERT`、`UPDATE`、`DELETE`、`CREATE`、`ALTER`、`DROP`、`TRUNCATE`
-- Redis:
-  - 允许: `redis_get`、`redis_hget`、`redis_hgetall`、`redis_keys`
-  - 禁止: `redis_set`、`redis_del`
-- MongoDB:
-  - 允许: `mongodb_find`、`mongodb_find_one`、`mongodb_count`、`mongodb_list_collections`
-  - 禁止: `mongodb_insert_one`、`mongodb_insert_many`、`mongodb_update_one`、`mongodb_delete_one`
+| 模式 | 定位 | 适用场景 |
+| --- | --- | --- |
+| `read_only` | 默认只读 | 生产排查、只读分析 |
+| `restricted` | 允许部分写操作 | 开发调试、日常维护 |
+| `full_access` | 完全开放 | 本地开发、受控测试环境 |
 
-适用场景：
-- 生产环境只读排查
-- 给 AI 或自动化工具开放查询权限，但不希望它改数据
+### `read_only`
 
-#### `restricted`
+- MySQL：允许 `SELECT`、`SHOW`、`DESCRIBE`、`DESC`、`EXPLAIN`
+- Redis：允许 `redis_get`、`redis_hget`、`redis_hgetall`、`redis_keys`
+- MongoDB：允许 `mongodb_find`、`mongodb_find_one`、`mongodb_count`、`mongodb_list_collections`
 
-允许常见的数据写入和更新，但仍然阻止高风险操作。
+禁止任何数据修改和结构变更。
 
-- MySQL:
-  - 允许: 查询语句，以及大多数普通 `INSERT`、`UPDATE`
-  - 禁止: `DROP`、`TRUNCATE`、`ALTER TABLE`
-  - 额外限制: `DELETE` 必须带 `WHERE`；结构化工具 `mysql_delete` 仍会被禁止
-- Redis:
-  - 允许: `redis_set`
-  - 禁止: `redis_del`
-- MongoDB:
-  - 允许: `mongodb_insert_one`、`mongodb_insert_many`、`mongodb_update_one`
-  - 禁止: `mongodb_delete_one`
+### `restricted`
 
-适用场景：
-- 测试环境、开发环境中的日常数据维护
-- 允许新增和修改，但不希望误删数据或误改表结构
+- MySQL：允许常见 `SELECT`、`INSERT`、`UPDATE`
+- MySQL：禁止 `DROP`、`TRUNCATE`、`ALTER TABLE`
+- MySQL：`DELETE` 必须带 `WHERE`，结构化工具 `mysql_delete` 仍会被禁止
+- Redis：允许 `redis_set`，禁止 `redis_del`
+- MongoDB：允许插入和更新，禁止删除
 
-#### `full_access`
+### `full_access`
 
-完全开放模式，允许所有读写和结构变更操作。
+- MySQL：允许查询、写入和结构变更
+- Redis：允许所有已提供工具
+- MongoDB：允许所有已提供工具
 
-- MySQL: 允许 `SELECT`、`INSERT`、`UPDATE`、`DELETE`、`CREATE`、`ALTER`、`DROP`、`TRUNCATE`
-- Redis: 允许所有已提供工具，包括 `redis_set`、`redis_del`
-- MongoDB: 允许所有已提供工具，包括插入、更新、删除
+建议：
 
-适用场景：
-- 本地开发
-- 明确受控的测试环境
-- 需要执行表结构变更或批量清理数据的场景
-
-使用建议：
 - 默认使用 `read_only`
-- 需要改数据但不需要删表、删库、改表结构时，使用 `restricted`
-- 只有在你明确知道会执行高风险操作时，才使用 `full_access`
+- 只在确实需要写数据时切到 `restricted`
+- 只有明确知道要执行高风险操作时，才使用 `full_access`
 
-### 开发模式
+## Database Config
 
-```bash
-npm run dev
-```
+### Example `config.json`
 
-## 数据库连接配置
-
-### 预配置连接（推荐）
-
-通过 `config.json` 或环境变量预配置数据库连接，服务器启动时自动连接。
-
-**MySQL 配置示例:**
 ```json
 {
   "databases": {
@@ -253,235 +223,171 @@ npm run dev
       "user": "root",
       "password": "your_password",
       "database": "mydb",
-      "pool": { "min": 2, "max": 10, "idleTimeout": 60000 }
-    }
-  }
-}
-```
-
-**Redis 配置示例:**
-```json
-{
-  "databases": {
+      "pool": {
+        "min": 2,
+        "max": 10,
+        "idleTimeout": 60000
+      }
+    },
     "redis": {
       "host": "localhost",
       "port": 6379,
       "password": "your_password",
       "db": 0
-    }
-  }
-}
-```
-
-**MongoDB 配置示例:**
-```json
-{
-  "databases": {
+    },
     "mongodb": {
       "url": "mongodb://localhost:27017",
       "database": "mydb"
     }
+  },
+  "security": {
+    "mode": "read_only"
   }
 }
 ```
 
-### 动态连接
+### Dynamic Connect
 
-也可以通过工具动态连接，使用 `*_connect` 工具建立连接，`*_disconnect` 断开连接。
+除了预配置连接，也支持使用 `*_connect` 工具在运行时手动连接，使用 `*_disconnect` 断开。
 
-如果你担心凭证暴露给调用工具的 AI，建议优先使用预配置连接，不要把数据库密码作为 `*_connect` 的工具参数传给模型。
+如果你担心凭证暴露给模型，优先使用预配置连接。
 
-## 可用工具
-
-### MySQL 工具
-
-#### `mysql_connect`
-连接到 MySQL 数据库（支持连接池）。仅在服务启动时未预配置 MySQL，或你需要覆盖当前默认连接时使用。如果已通过预配置连接，此工具会重新连接。
-
-**参数:**
-- `host` (必需): MySQL 主机地址
-- `port` (可选): MySQL 端口，默认 3306
-- `user` (必需): MySQL 用户名
-- `password` (必需): MySQL 密码
-- `database` (可选): 数据库名称
-- `usePool` (可选): 是否使用连接池，默认 `false`
-- `pool` (可选): 连接池配置
-  - `min`: 最小连接数，默认 2
-  - `max`: 最大连接数，默认 10
-  - `idleTimeout`: 空闲超时时间（毫秒），默认 60000
-
-#### `mysql_query`
-执行 MySQL SQL 语句（支持所有 SQL 操作，包括表结构变更）。如果服务启动时已预配置 MySQL，本工具会直接复用默认连接，无需先调用 `mysql_connect`。
-
-**参数:**
-- `sql` (必需): SQL 语句
-- `params` (可选): SQL 参数数组
-
-**示例:**
-```json
-{ "sql": "SELECT * FROM users WHERE id = ?", "params": [1] }
-{ "sql": "CREATE TABLE users (id INT PRIMARY KEY, name VARCHAR(100))" }
-{ "sql": "ALTER TABLE users ADD COLUMN age INT" }
-```
-
-#### `mysql_insert` / `mysql_update` / `mysql_delete`
-更友好的 API，自动构建 SQL，使用参数化查询防止 SQL 注入。如果服务启动时已预配置 MySQL，这些工具会直接复用默认连接。
-
-**参数:**
-- `table` (必需): 表名
-- `data` (insert/update 必需): 数据对象
-- `where` (update/delete 必需): WHERE 条件对象
-
-**示例:**
-```json
-{ "table": "users", "data": { "name": "John", "email": "john@example.com" } }
-{ "table": "users", "data": { "name": "Jane" }, "where": { "id": 1 } }
-{ "table": "users", "where": { "id": 1 } }
-```
-
-#### `mysql_disconnect`
-断开当前 MySQL 数据库连接，包括启动时已建立的默认连接。
-
-#### `mysql_connection_status`
-获取当前 MySQL 默认连接状态。该工具会实时探测当前连接是否可用；若已连接，直接使用 `mysql_query`、`mysql_insert`、`mysql_update`、`mysql_delete`，无需先调用 `mysql_connect`。
-
-**参数:** 无
-
-**返回:** 当前 MySQL 连接摘要，包括：
-- 是否存在启动时预配置 `configured`
-- 当前是否已连接 `connected`
-- 连接池状态 `pool`（未启用时为 `null`）
-- 建议下一步操作 `guidance`
-
-#### `mysql_pool_status`
-获取当前 MySQL 连接池状态（如果使用连接池）。若服务启动时已预配置并启用了连接池，也会返回默认连接的状态。
-
-**参数:** 无
-
-**返回:** 连接池状态信息，包括：
-- 总连接数
-- 活跃连接数
-- 空闲连接数
-- 排队请求数 `queuedRequests`
-- 配置的最大连接数 `configuredMaxConnections`
-- 当前会话级 `SQL_SELECT_LIMIT`
-
-### Redis 工具
-
-- `redis_connect`: 连接 Redis（参数: `host`, `port`, `password`, `db`, `url`）
-- `redis_get`: 获取键值（参数: `key`）
-- `redis_set`: 设置键值（参数: `key`, `value`, `ttl`）
-- `redis_keys`: 使用 `SCAN` 查找匹配的键，避免 `KEYS` 阻塞实例（参数: `pattern`, `count`, `limit`）
-- `redis_del`: 删除键（参数: `key`）
-- `redis_hget`: 获取哈希字段（参数: `key`, `field`）
-- `redis_hgetall`: 获取所有哈希字段（参数: `key`）
-- `redis_disconnect`: 断开连接
-
-### MongoDB 工具
-
-- `mongodb_connect`: 连接 MongoDB（参数: `url`, `database`）
-- `mongodb_find`: 查找文档（参数: `collection`, `filter`, `limit`, `skip`, `sort`）
-  默认会应用 `limit`，并且 `limit` 会被限制在运行时配置允许的最大值内
-- `mongodb_find_one`: 查找单个文档（参数: `collection`, `filter`）
-- `mongodb_insert_one`: 插入单个文档（参数: `collection`, `document`）
-- `mongodb_insert_many`: 插入多个文档（参数: `collection`, `documents`）
-- `mongodb_update_one`: 更新文档（参数: `collection`, `filter`, `update`）
-- `mongodb_delete_one`: 删除文档（参数: `collection`, `filter`）
-- `mongodb_count`: 统计文档数量（参数: `collection`, `filter`）
-- `mongodb_list_collections`: 列出所有集合
-- `mongodb_disconnect`: 断开连接
-
-### 安全配置工具
-
-- `set_security_mode`: 设置安全模式（参数: `mode` - `read_only`/`restricted`/`full_access`）
-- `get_security_mode`: 获取当前安全模式
-- `server_runtime_status`: 获取服务运行时状态，包括超时、响应限制、并发队列、连接状态和 MySQL 连接池状态；其中 `connections.*.connected` 会实时探测对应数据库是否仍然可用
-
-## 运行时观测
-
-可以通过 `server_runtime_status` 工具查看当前服务状态，无需参数。
-
-返回内容包括：
-
-- 当前安全模式
-- 操作超时配置
-- 响应裁剪限制
-- MySQL `SQL_SELECT_LIMIT`
-- Mongo 默认/最大 `limit`
-- MySQL、Redis、MongoDB 的 limiter 状态
-  - `active`: 当前执行中的请求数
-  - `queued`: 当前排队中的请求数
-  - `maxConcurrent`: 最大并发数
-- 当前数据库连接状态
-- MySQL 连接池状态
-
-这个工具适合用来排查：
-
-- 为什么查询被截断
-- 为什么请求在排队
-- 为什么 MySQL 池被打满
-- 当前服务的保护阈值是多少
-
-## 使用示例
+## Tooling Surface
 
 ### MySQL
+
+- `mysql_connect`: 手动连接 MySQL；仅在未预配置连接或需要覆盖默认连接时使用
+- `mysql_query`: 执行 SQL；已预配置连接时可直接使用
+- `mysql_insert`
+- `mysql_update`
+- `mysql_delete`
+- `mysql_disconnect`
+- `mysql_pool_status`
+- `mysql_connection_status`
+
+### Redis
+
+- `redis_connect`
+- `redis_get`
+- `redis_set`
+- `redis_keys`
+- `redis_del`
+- `redis_hget`
+- `redis_hgetall`
+- `redis_disconnect`
+
+### MongoDB
+
+- `mongodb_connect`
+- `mongodb_find`
+- `mongodb_find_one`
+- `mongodb_insert_one`
+- `mongodb_insert_many`
+- `mongodb_update_one`
+- `mongodb_delete_one`
+- `mongodb_count`
+- `mongodb_list_collections`
+- `mongodb_disconnect`
+
+### Runtime / Security
+
+- `set_security_mode`
+- `get_security_mode`
+- `server_runtime_status`
+
+## Practical Examples
+
+### MySQL Query
+
 ```json
-// 连接
-{ "host": "localhost", "user": "root", "password": "pass", "database": "mydb" }
-
-// 查询
 { "sql": "SELECT * FROM users WHERE id = ?", "params": [1] }
+```
 
-// 插入
+### MySQL Insert
+
+```json
 { "table": "users", "data": { "name": "John", "email": "john@example.com" } }
 ```
 
-### Redis
-```json
-// 连接
-{ "host": "localhost", "port": 6379, "db": 0 }
+### Redis Set
 
-// 操作
+```json
 { "key": "user:1", "value": "John Doe", "ttl": 3600 }
-{ "key": "user:1" }
+```
+
+### Redis Keys Scan
+
+```json
 { "pattern": "user:*", "count": 100, "limit": 200 }
 ```
 
-### MongoDB
-```json
-// 连接
-{ "url": "mongodb://localhost:27017", "database": "mydb" }
+### MongoDB Find
 
-// 操作
+```json
 { "collection": "users", "filter": { "age": { "$gte": 18 } }, "limit": 10 }
-{ "collection": "users", "document": { "name": "John", "age": 30 } }
 ```
 
-### 运行时状态
+### Runtime Status
+
 ```json
 {}
 ```
 
-## 开发
+## Observability
+
+`server_runtime_status` 可用于快速排查：
+
+- 为什么请求超时
+- 为什么结果被裁剪
+- 为什么查询在排队
+- 为什么 MySQL 连接池被打满
+- 当前服务的保护阈值是多少
+- 当前数据库连接是否真的还活着
+
+## Development
 
 ```bash
-# 安装依赖
 npm install
-
-# 构建
 npm run build
-
-# 开发模式（使用 tsx）
 npm run dev
-
-# 监听模式
 npm run watch
+npm test
 ```
 
-## 许可证
+## FAQ
+
+<details>
+  <summary><strong>为什么建议优先使用预配置连接？</strong></summary>
+  <br />
+  因为这样数据库凭证不需要通过 MCP 工具参数传给模型，风险更低，也更适合长期运行。
+</details>
+
+<details>
+  <summary><strong>这个项目适合直接连生产库吗？</strong></summary>
+  <br />
+  可以，但建议使用 <code>read_only</code>，并配置合理的超时、结果裁剪和并发限制。
+</details>
+
+<details>
+  <summary><strong>为什么还要做运行时保护？</strong></summary>
+  <br />
+  因为模型天然会倾向“多查一点再总结”，没有保护的话，很容易拉出过大的结果集或积压并发请求。
+</details>
+
+## 💝 赞助项目
+
+感谢你使用 `db-mcp`。
+
+如果这个项目对你有帮助，欢迎赞助项目的持续开发和维护。
+
+<a href="./docs/SPONSOR.md">
+  <img src="https://img.shields.io/badge/BUY_ME_A_COFFEE-%E6%94%AF%E6%8C%81%E4%BD%9C%E8%80%85-f08a24?style=for-the-badge&logo=buymeacoffee&logoColor=ffdd00&labelColor=4a4a4a" alt="支持作者" />
+</a>
+
+## License
 
 MIT
 
-## 贡献
+## Contributing
 
-欢迎提交 Issue 和 Pull Request！
+欢迎提交 Issue 和 Pull Request。
