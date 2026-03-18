@@ -49,9 +49,16 @@
 
 ## Preview
 
-| Redis | MySQL | MongoDB |
-| --- | --- | --- |
-| ![Redis 查询示例](screenshots/redis-query-example.png) | ![MySQL 统计查询示例](screenshots/mysql-statistics-example.png) | ![MongoDB 统计查询示例](screenshots/mongodb-count-example.png) |
+<table>
+  <tr>
+    <td width="50%">
+      <img src="screenshots/example.png" alt="db-mcp 示例图 1" width="100%" />
+    </td>
+    <td width="50%">
+      <img src="screenshots/example_2.png" alt="db-mcp 示例图 2" width="100%" />
+    </td>
+  </tr>
+</table>
 
 ## Quick Start
 

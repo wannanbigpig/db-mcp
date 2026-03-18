@@ -49,9 +49,16 @@ LLMs are good at querying data, summarizing results, and explaining what they fi
 
 ## Preview
 
-| Redis | MySQL | MongoDB |
-| --- | --- | --- |
-| ![Redis Query Example](screenshots/redis-query-example.png) | ![MySQL Statistics Example](screenshots/mysql-statistics-example.png) | ![MongoDB Count Example](screenshots/mongodb-count-example.png) |
+<table>
+  <tr>
+    <td width="50%">
+      <img src="screenshots/example.png" alt="db-mcp example screenshot 1" width="100%" />
+    </td>
+    <td width="50%">
+      <img src="screenshots/example_2.png" alt="db-mcp example screenshot 2" width="100%" />
+    </td>
+  </tr>
+</table>
 
 ## Quick Start
 

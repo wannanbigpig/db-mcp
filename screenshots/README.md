@@ -6,9 +6,8 @@
 
 请将以下截图文件放在此目录：
 
-- `redis-query-example.png` - Redis 查询示例，展示如何连接 Redis 数据库并查询键
-- `mysql-statistics-example.png` - MySQL 统计查询示例，展示如何执行复杂的数据统计和分析
-- `mongodb-count-example.png` - MongoDB 统计查询示例，展示如何统计集合中的文档数量
+- `example.png` - db-mcp 示例图 1，用于 README 预览区块
+- `example_2.png` - db-mcp 示例图 2，用于 README 预览区块
 - `alipay.jpg` - 支付宝收款码，用于 README 赞助区块
 - `wechat_pay.jpg` - 微信收款码，用于 README 赞助区块
 - `eth.jpg` - ETH 收款码，用于 README 赞助区块
