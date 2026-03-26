@@ -7,6 +7,7 @@ import { SecurityManager, SecurityMode } from '../security/security-manager.js';
 import { withTimeout } from '../utils/async.js';
 import { ConcurrencyLimiter } from '../utils/concurrency.js';
 import { isConnectorHealthy } from '../utils/connection-status.js';
+import { RedisConnector } from '../connectors/redis.js';
 
 test('buildSuccessResponse serializes bigint and circular references', () => {
   configureResponseLimits({ maxResultItems: 200, maxResponseBytes: 65536 });
@@ -137,5 +138,265 @@ test('isConnectorHealthy reflects connector health and guards failures', async (
       },
     }),
     false
+  );
+});
+
+test('RedisConnector exposes redis type and memory usage via sendCommand', async () => {
+  const connector = new RedisConnector({});
+  const calls: string[][] = [];
+
+  (
+    connector as unknown as {
+      client: {
+        sendCommand<T>(args: string[]): Promise<T>;
+      };
+    }
+  ).client = {
+    sendCommand: async <T>(args: string[]) => {
+      calls.push(args);
+      if (args[0] === 'TYPE') {
+        return 'hash' as T;
+      }
+      return 128 as T;
+    },
+  };
+
+  assert.equal(await connector.type('demo:key'), 'hash');
+  assert.equal(await connector.memoryUsage('demo:key'), 128);
+  assert.deepEqual(calls, [
+    ['TYPE', 'demo:key'],
+    ['MEMORY', 'USAGE', 'demo:key'],
+  ]);
+});
+
+test('RedisConnector ranks top memory keys in current redis db', async () => {
+  const connector = new RedisConnector({});
+  const calls: string[][] = [];
+  const memoryMap: Record<string, number | null> = {
+    'k:1': 128,
+    'k:2': 512,
+    'k:3': 256,
+  };
+  const typeMap: Record<string, string> = {
+    'k:2': 'hash',
+    'k:3': 'string',
+  };
+
+  (
+    connector as unknown as {
+      client: {
+        sendCommand<T>(args: string[]): Promise<T>;
+        scanIterator(args: { MATCH: string; COUNT: number }): AsyncIterable<string>;
+      };
+    }
+  ).client = {
+    sendCommand: async <T>(args: string[]) => {
+      calls.push(args);
+      if (args[0] === 'MEMORY') {
+        return memoryMap[args[2]] as T;
+      }
+      return typeMap[args[1]] as T;
+    },
+    async *scanIterator() {
+      yield 'k:1';
+      yield 'k:2';
+      yield 'k:3';
+    },
+  };
+
+  const result = await connector.topMemoryKeys({
+    pattern: 'k:*',
+    count: 2,
+    maxKeys: 3,
+    topN: 2,
+  });
+
+  assert.deepEqual(result, {
+    pattern: 'k:*',
+    scannedKeys: 3,
+    scanCapped: true,
+    topN: 2,
+    items: [
+      { key: 'k:2', bytes: 512, type: 'hash' },
+      { key: 'k:3', bytes: 256, type: 'string' },
+    ],
+  });
+  assert.deepEqual(calls, [
+    ['MEMORY', 'USAGE', 'k:1'],
+    ['MEMORY', 'USAGE', 'k:2'],
+    ['MEMORY', 'USAGE', 'k:3'],
+    ['TYPE', 'k:2'],
+    ['TYPE', 'k:3'],
+  ]);
+});
+
+test('RedisConnector aggregates memory usage by prefixes', async () => {
+  const connector = new RedisConnector({});
+  const calls: string[][] = [];
+  const keysByPattern: Record<string, string[]> = {
+    'user:*': ['user:1', 'user:2'],
+    'session:*': ['session:1'],
+    'cache:*': ['cache:1', 'cache:2'],
+  };
+  const memoryMap: Record<string, number | null> = {
+    'user:1': 300,
+    'user:2': 700,
+    'session:1': 256,
+    'cache:1': 100,
+    'cache:2': 150,
+  };
+
+  (
+    connector as unknown as {
+      client: {
+        sendCommand<T>(args: string[]): Promise<T>;
+        scanIterator(args: { MATCH: string; COUNT: number }): AsyncIterable<string>;
+      };
+    }
+  ).client = {
+    sendCommand: async <T>(args: string[]) => {
+      calls.push(args);
+      return memoryMap[args[2]] as T;
+    },
+    async *scanIterator(args: { MATCH: string; COUNT: number }) {
+      for (const key of keysByPattern[args.MATCH] ?? []) {
+        yield key;
+      }
+    },
+  };
+
+  const result = await connector.memoryUsageByPrefixes({
+    prefixes: ['user:*', 'session:*', 'cache:*'],
+    count: 2,
+    maxKeysPerPrefix: 10,
+  });
+
+  assert.deepEqual(result, {
+    groups: [
+      {
+        pattern: 'user:*',
+        scannedKeys: 2,
+        scanCapped: false,
+        matchedKeys: 2,
+        totalBytes: 1000,
+        largestKey: 'user:2',
+        largestKeyBytes: 700,
+      },
+      {
+        pattern: 'session:*',
+        scannedKeys: 1,
+        scanCapped: false,
+        matchedKeys: 1,
+        totalBytes: 256,
+        largestKey: 'session:1',
+        largestKeyBytes: 256,
+      },
+      {
+        pattern: 'cache:*',
+        scannedKeys: 2,
+        scanCapped: false,
+        matchedKeys: 2,
+        totalBytes: 250,
+        largestKey: 'cache:2',
+        largestKeyBytes: 150,
+      },
+    ],
+  });
+  assert.deepEqual(
+    calls.slice().sort((a, b) => a[2].localeCompare(b[2])),
+    [
+    ['MEMORY', 'USAGE', 'user:1'],
+    ['MEMORY', 'USAGE', 'user:2'],
+    ['MEMORY', 'USAGE', 'session:1'],
+    ['MEMORY', 'USAGE', 'cache:1'],
+    ['MEMORY', 'USAGE', 'cache:2'],
+    ].sort((a, b) => a[2].localeCompare(b[2]))
+  );
+});
+
+test('RedisConnector auto-discovers top memory prefixes', async () => {
+  const connector = new RedisConnector({});
+  const calls: string[][] = [];
+  const memoryMap: Record<string, number | null> = {
+    'user:1': 300,
+    'user:2': 700,
+    'session:1:data': 256,
+    'session:2:data': 128,
+    'cache:home': 900,
+    plainkey: 64,
+  };
+
+  (
+    connector as unknown as {
+      client: {
+        sendCommand<T>(args: string[]): Promise<T>;
+        scanIterator(args: { MATCH: string; COUNT: number }): AsyncIterable<string>;
+      };
+    }
+  ).client = {
+    sendCommand: async <T>(args: string[]) => {
+      calls.push(args);
+      return memoryMap[args[2]] as T;
+    },
+    async *scanIterator() {
+      yield 'user:1';
+      yield 'user:2';
+      yield 'session:1:data';
+      yield 'session:2:data';
+      yield 'cache:home';
+      yield 'plainkey';
+    },
+  };
+
+  const result = await connector.autoPrefixMemoryUsage({
+    pattern: '*',
+    separator: ':',
+    depth: 1,
+    count: 3,
+    maxKeys: 10,
+    topN: 3,
+  });
+
+  assert.deepEqual(result, {
+    pattern: '*',
+    separator: ':',
+    depth: 1,
+    scannedKeys: 6,
+    scanCapped: false,
+    topN: 3,
+    groups: [
+      {
+        prefix: 'user:*',
+        matchedKeys: 2,
+        totalBytes: 1000,
+        largestKey: 'user:2',
+        largestKeyBytes: 700,
+      },
+      {
+        prefix: 'cache:*',
+        matchedKeys: 1,
+        totalBytes: 900,
+        largestKey: 'cache:home',
+        largestKeyBytes: 900,
+      },
+      {
+        prefix: 'session:*',
+        matchedKeys: 2,
+        totalBytes: 384,
+        largestKey: 'session:1:data',
+        largestKeyBytes: 256,
+      },
+    ],
+  });
+  assert.deepEqual(
+    calls.slice().sort((a, b) => a[2].localeCompare(b[2])),
+    [
+      ['MEMORY', 'USAGE', 'user:1'],
+      ['MEMORY', 'USAGE', 'user:2'],
+      ['MEMORY', 'USAGE', 'session:1:data'],
+      ['MEMORY', 'USAGE', 'session:2:data'],
+      ['MEMORY', 'USAGE', 'cache:home'],
+      ['MEMORY', 'USAGE', 'plainkey'],
+    ].sort((a, b) => a[2].localeCompare(b[2]))
   );
 });

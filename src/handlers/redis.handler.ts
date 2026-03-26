@@ -2,7 +2,7 @@ import { RedisConfig, RedisConnector } from '../connectors/redis.js';
 import { SecurityManager, OperationType } from '../security/security-manager.js';
 import { buildSuccessResponse } from '../utils/response.js';
 import { assertOperationAllowed } from '../utils/security.js';
-import { assertRecord, assertString, getOptionalNumber, assertText } from '../utils/validation.js';
+import { assertRecord, assertString, assertStringArray, getOptionalNumber, assertText } from '../utils/validation.js';
 
 export class RedisHandler {
   private connector: RedisConnector | null = null;
@@ -77,6 +77,91 @@ export class RedisHandler {
     return buildSuccessResponse(value === null ? `键 "${normalizedKey}" 不存在` : value);
   }
 
+  async handleType(args: Record<string, unknown>) {
+    const connector = this.requireConnector();
+    const { key } = assertRecord(args, 'redis_type 参数') as { key: unknown };
+    const normalizedKey = assertString(key, 'key');
+    const type = await connector.type(normalizedKey);
+    return buildSuccessResponse({ key: normalizedKey, type });
+  }
+
+  async handleMemoryUsage(args: Record<string, unknown>) {
+    const connector = this.requireConnector();
+    const { key } = assertRecord(args, 'redis_memory_usage 参数') as { key: unknown };
+    const normalizedKey = assertString(key, 'key');
+    const bytes = await connector.memoryUsage(normalizedKey);
+    return buildSuccessResponse({ key: normalizedKey, bytes });
+  }
+
+  async handleTopMemoryKeys(args: Record<string, unknown>) {
+    const connector = this.requireConnector();
+    const rawArgs = assertRecord(args, 'redis_top_memory_keys 参数');
+    const pattern = rawArgs.pattern === undefined ? '*' : assertString(rawArgs.pattern, 'pattern');
+    const count = getOptionalNumber(rawArgs.count, 'count') ?? 100;
+    const maxKeys = getOptionalNumber(rawArgs.maxKeys, 'maxKeys') ?? 5000;
+    const topN = getOptionalNumber(rawArgs.topN, 'topN') ?? 20;
+
+    assertPositiveInteger(count, 'count');
+    assertPositiveInteger(maxKeys, 'maxKeys');
+    assertPositiveInteger(topN, 'topN');
+
+    const result = await connector.topMemoryKeys({
+      pattern,
+      count,
+      maxKeys,
+      topN,
+    });
+    return buildSuccessResponse(result);
+  }
+
+  async handleMemoryUsageByPrefixes(args: Record<string, unknown>) {
+    const connector = this.requireConnector();
+    const rawArgs = assertRecord(args, 'redis_memory_usage_by_prefixes 参数');
+    const prefixes = assertStringArray(rawArgs.prefixes, 'prefixes');
+    const count = getOptionalNumber(rawArgs.count, 'count') ?? 100;
+    const maxKeysPerPrefix = getOptionalNumber(rawArgs.maxKeysPerPrefix, 'maxKeysPerPrefix') ?? 5000;
+
+    if (prefixes.length === 0) {
+      throw new Error('prefixes 不能为空数组');
+    }
+
+    assertPositiveInteger(count, 'count');
+    assertPositiveInteger(maxKeysPerPrefix, 'maxKeysPerPrefix');
+
+    const result = await connector.memoryUsageByPrefixes({
+      prefixes,
+      count,
+      maxKeysPerPrefix,
+    });
+    return buildSuccessResponse(result);
+  }
+
+  async handleAutoPrefixMemoryUsage(args: Record<string, unknown>) {
+    const connector = this.requireConnector();
+    const rawArgs = assertRecord(args, 'redis_auto_prefix_memory_usage 参数');
+    const pattern = rawArgs.pattern === undefined ? '*' : assertString(rawArgs.pattern, 'pattern');
+    const separator = rawArgs.separator === undefined ? ':' : assertString(rawArgs.separator, 'separator');
+    const depth = getOptionalNumber(rawArgs.depth, 'depth') ?? 1;
+    const count = getOptionalNumber(rawArgs.count, 'count') ?? 100;
+    const maxKeys = getOptionalNumber(rawArgs.maxKeys, 'maxKeys') ?? 5000;
+    const topN = getOptionalNumber(rawArgs.topN, 'topN') ?? 20;
+
+    assertPositiveInteger(depth, 'depth');
+    assertPositiveInteger(count, 'count');
+    assertPositiveInteger(maxKeys, 'maxKeys');
+    assertPositiveInteger(topN, 'topN');
+
+    const result = await connector.autoPrefixMemoryUsage({
+      pattern,
+      separator,
+      depth,
+      count,
+      maxKeys,
+      topN,
+    });
+    return buildSuccessResponse(result);
+  }
+
   async handleSet(args: Record<string, unknown>) {
     const connector = this.requireConnector();
     this.requireOperation(OperationType.SET);
@@ -129,5 +214,11 @@ export class RedisHandler {
       return buildSuccessResponse('已断开 Redis 数据库连接');
     }
     return buildSuccessResponse('Redis 数据库未连接');
+  }
+}
+
+function assertPositiveInteger(value: number, fieldName: string) {
+  if (!Number.isInteger(value) || value <= 0) {
+    throw new Error(`${fieldName} 必须是正整数`);
   }
 }

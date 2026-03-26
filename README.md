@@ -221,7 +221,7 @@ codex mcp add db-mcp \
 ### `read_only`
 
 - MySQL：允许 `SELECT`、`SHOW`、`DESCRIBE`、`DESC`、`EXPLAIN`
-- Redis：允许 `redis_get`、`redis_hget`、`redis_hgetall`、`redis_keys`
+- Redis：允许 `redis_get`、`redis_type`、`redis_memory_usage`、`redis_top_memory_keys`、`redis_memory_usage_by_prefixes`、`redis_auto_prefix_memory_usage`、`redis_hget`、`redis_hgetall`、`redis_keys`
 - MongoDB：允许 `mongodb_find`、`mongodb_find_one`、`mongodb_count`、`mongodb_list_collections`
 
 禁止任何数据修改和结构变更。
@@ -305,6 +305,11 @@ codex mcp add db-mcp \
 
 - `redis_connect`
 - `redis_get`
+- `redis_type`
+- `redis_memory_usage`
+- `redis_top_memory_keys`
+- `redis_memory_usage_by_prefixes`
+- `redis_auto_prefix_memory_usage`
 - `redis_set`
 - `redis_keys`
 - `redis_del`

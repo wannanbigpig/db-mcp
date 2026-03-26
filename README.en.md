@@ -223,7 +223,7 @@ Set the mode through `DB_MCP_SECURITY_MODE` or the `set_security_mode` tool.
 ### `read_only`
 
 - MySQL: allows `SELECT`, `SHOW`, `DESCRIBE`, `DESC`, `EXPLAIN`
-- Redis: allows `redis_get`, `redis_hget`, `redis_hgetall`, `redis_keys`
+- Redis: allows `redis_get`, `redis_type`, `redis_memory_usage`, `redis_top_memory_keys`, `redis_memory_usage_by_prefixes`, `redis_auto_prefix_memory_usage`, `redis_hget`, `redis_hgetall`, `redis_keys`
 - MongoDB: allows `mongodb_find`, `mongodb_find_one`, `mongodb_count`, `mongodb_list_collections`
 
 No data modification or schema changes are allowed.
@@ -358,6 +358,11 @@ If you are sensitive to credential exposure, prefer preconfigured connections.
 
 - `redis_connect`
 - `redis_get`
+- `redis_type`
+- `redis_memory_usage`
+- `redis_top_memory_keys`
+- `redis_memory_usage_by_prefixes`
+- `redis_auto_prefix_memory_usage`
 - `redis_set`
 - `redis_keys`
 - `redis_del`

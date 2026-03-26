@@ -356,6 +356,73 @@ const tools: Tool[] = [
     },
   },
   {
+    name: 'redis_type',
+    description: '获取 Redis 键的数据类型',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        key: { type: 'string', description: 'Redis 键名' },
+      },
+      required: ['key'],
+    },
+  },
+  {
+    name: 'redis_memory_usage',
+    description: '获取 Redis 键的内存占用字节数',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        key: { type: 'string', description: 'Redis 键名' },
+      },
+      required: ['key'],
+    },
+  },
+  {
+    name: 'redis_top_memory_keys',
+    description: '扫描当前 Redis 数据库并返回内存占用最高的键',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        pattern: { type: 'string', description: '键匹配模式，默认 "*"' },
+        count: { type: 'number', description: '每次 SCAN 批量大小，默认 100' },
+        maxKeys: { type: 'number', description: '最多扫描多少个键，默认 5000' },
+        topN: { type: 'number', description: '返回前多少个结果，默认 20' },
+      },
+    },
+  },
+  {
+    name: 'redis_memory_usage_by_prefixes',
+    description: '按多个 Redis 键前缀模式分组统计总内存占用',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        prefixes: {
+          type: 'array',
+          description: '要统计的键模式列表，例如 ["user:*", "session:*", "cache:*"]',
+          items: { type: 'string' },
+        },
+        count: { type: 'number', description: '每次 SCAN 批量大小，默认 100' },
+        maxKeysPerPrefix: { type: 'number', description: '每个前缀最多扫描多少个键，默认 5000' },
+      },
+      required: ['prefixes'],
+    },
+  },
+  {
+    name: 'redis_auto_prefix_memory_usage',
+    description: '自动按键名前缀聚合当前 Redis 数据库的内存占用',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        pattern: { type: 'string', description: '先筛选哪些键参与聚合，默认 "*"' },
+        separator: { type: 'string', description: '前缀分隔符，默认 ":"' },
+        depth: { type: 'number', description: '按前几段前缀聚合，默认 1' },
+        count: { type: 'number', description: '每次 SCAN 批量大小，默认 100' },
+        maxKeys: { type: 'number', description: '最多扫描多少个键，默认 5000' },
+        topN: { type: 'number', description: '返回前多少个前缀分组，默认 20' },
+      },
+    },
+  },
+  {
     name: 'redis_set',
     description: '设置 Redis 键的值',
     inputSchema: {
@@ -600,6 +667,11 @@ const toolHandlers: Record<string, (args: Record<string, unknown>) => Promise<To
   mysql_delete: (args) => mysqlHandler.handleDelete(args),
   redis_connect: (args) => redisHandler.handleConnect(args),
   redis_get: (args) => redisHandler.handleGet(args),
+  redis_type: (args) => redisHandler.handleType(args),
+  redis_memory_usage: (args) => redisHandler.handleMemoryUsage(args),
+  redis_top_memory_keys: (args) => redisHandler.handleTopMemoryKeys(args),
+  redis_memory_usage_by_prefixes: (args) => redisHandler.handleMemoryUsageByPrefixes(args),
+  redis_auto_prefix_memory_usage: (args) => redisHandler.handleAutoPrefixMemoryUsage(args),
   redis_set: (args) => redisHandler.handleSet(args),
   redis_keys: (args) => redisHandler.handleKeys(args),
   redis_del: (args) => redisHandler.handleDelete(args),
