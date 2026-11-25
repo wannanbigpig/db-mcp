@@ -1,7 +1,11 @@
 {
-  "name": "db-mcp",
+  "name": "@wannanbigpig/db-mcp",
   "version": "2.0.0",
   "description": "MCP server for connecting and querying MySQL, Redis, and MongoDB databases",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wannanbigpig/db-mcp.git"
+  },
   "main": "dist/index.js",
   "type": "module",
   "bin": {

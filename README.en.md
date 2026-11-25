@@ -6,9 +6,34 @@ A local stdio MCP server for MySQL, Redis and MongoDB. **Read-only by default.**
 
 All three databases support SSH tunnels. On macOS or Linux, supply a bastion IP, hostname, or OpenSSH alias. Key authentication uses the local SSH settings, and password authentication adds a password reference. Database TLS verifies the original database identity. See [SSH setup](docs/SSH.md) and the [example](examples/config.ssh.example.json).
 
+## Run with npm
+
+Install Node.js 22 or later and npm. Reuse an existing v2 `config.json`, create one in standard JSON using the [annotated three-engine example](docs/CONFIGURATION.md#三库只读示例), or run `npx --yes @wannanbigpig/db-mcp@2.0.0 --setup` in an interactive terminal to generate a read-only profile. If you use the wizard, copy the path it prints for `config.json` into the MCP entry below.
+
+Merge this `db-mcp` entry into your client configuration and replace the last argument with your absolute configuration path.
+
+```json
+{
+  "mcpServers": {
+    "db-mcp": {
+      "command": "npx",
+      "args": ["--yes", "@wannanbigpig/db-mcp@2.0.0", "--config", "/absolute/path/db-mcp/config.json"]
+    }
+  }
+}
+```
+
+Declare each connection once in `sources`. Set the default database with `database`, which defaults to DB 0 for Redis. Set `tls.mode` per source and use `access: {}` for default read-only access. On macOS and Linux, you can keep MySQL/Redis passwords and the MongoDB connection string in the same private config file. Use `chmod 600 /absolute/path/db-mcp/config.json` for inline credentials. See the [configuration reference](docs/CONFIGURATION.md) for secret references, SSH and database selection.
+
+Run the offline config check below. After `CONFIG_VALID`, reload the MCP client, call `list_sources` and try a read against a ready source.
+
+```bash
+npx --yes @wannanbigpig/db-mcp@2.0.0 --config /absolute/path/db-mcp/config.json --check
+```
+
 ## Beginner quick start (recommended)
 
-Use a real interactive terminal on macOS/Linux. Install Node.js >= 22 and npm, then download this repository. Prepare the database host, port, database name and account. By default, reads cover everything visible to that account within the configured database, without listing tables, fields or key prefixes first. Prepare an allowlist only if you need narrower scope. Ask your database administrator about connection details if unsure; **never paste passwords into chat**.
+Run the wizard from source in an interactive macOS or Linux terminal. Install Node.js >= 22 and npm, then download this repository. Prepare the database host, port, database name and account. By default, reads cover everything visible to that account within the configured database, without listing tables, fields or key prefixes first. Prepare an allowlist only if you need narrower scope. Ask your database administrator about connection details if unsure; **never paste passwords into chat**.
 
 ### 1. Run the read-only setup wizard
 

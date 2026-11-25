@@ -4,9 +4,34 @@
 
 面向 MySQL、Redis、MongoDB 的本地 stdio MCP 服务。**默认只读**，一份 `config.json` 可管理多个连接。每个连接可设默认库、按需开启多库和配置 SSH。开发及测试实例可显式启用受控写入。旧版用户先看[从 1.x 迁移](#从-1x-迁移)。
 
+## 通过 npm 启动
+
+安装 Node.js 22 或更高版本及 npm。已有 v2 `config.json` 可以直接沿用。首次配置可以按[带注释的三库示例](docs/CONFIGURATION.md#三库只读示例)在本机创建一份标准 JSON，或在交互终端运行 `npx --yes @wannanbigpig/db-mcp@2.0.0 --setup` 生成只读配置。使用向导时，取它打印的 `config.json` 路径填入下面的客户端配置。
+
+在支持 `mcpServers` 的客户端中合并下面的 `db-mcp` 条目。把最后一项换成本机 `config.json` 的绝对路径。在图形界面中，启动命令填 `npx`，四个参数按顺序分四项添加。
+
+```json
+{
+  "mcpServers": {
+    "db-mcp": {
+      "command": "npx",
+      "args": ["--yes", "@wannanbigpig/db-mcp@2.0.0", "--config", "/absolute/path/db-mcp/config.json"]
+    }
+  }
+}
+```
+
+每个连接在 `sources` 里写一项。`database` 是默认库，Redis 省略时使用 DB 0。`tls.mode` 按数据源填写，`access: {}` 使用默认只读范围。macOS/Linux 上，可以把 MySQL/Redis 的 `password` 和 MongoDB 的 `connectionString` 填在同一份私有配置中，用 `chmod 600 /absolute/path/db-mcp/config.json` 设置权限。引用方式、SSH 和切库见[配置项说明](docs/CONFIGURATION.md)。
+
+启动前可运行下面的命令做离线检查。返回 `CONFIG_VALID` 后，重载 MCP 客户端，调用 `list_sources` 确认源为 `ready`，再用该源执行一次只读查询。
+
+```bash
+npx --yes @wannanbigpig/db-mcp@2.0.0 --config /absolute/path/db-mcp/config.json --check
+```
+
 ## 新手快速开始（推荐）
 
-适用于 macOS/Linux 的真实交互终端。先安装 Node.js >= 22 和 npm、下载本仓库；准备数据库地址、端口、数据库名和账号。默认读取已配置数据库内账号可见的全部范围，无需先列出表名、字段或 key 前缀；需要收窄时才准备名单。不清楚连接信息时先向数据库管理员确认，**不要把密码发到聊天里**。
+以下演示从源码运行向导，适用于 macOS/Linux 的真实交互终端。先安装 Node.js >= 22 和 npm、下载本仓库；准备数据库地址、端口、数据库名和账号。默认读取已配置数据库内账号可见的全部范围，无需先列出表名、字段或 key 前缀；需要收窄时才准备名单。不清楚连接信息时先向数据库管理员确认，**不要把密码发到聊天里**。
 
 ### 1. 运行只读配置向导
 

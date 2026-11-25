@@ -26,7 +26,7 @@ try {
     for (const match of content.matchAll(/from\s+['"](\.[^'"]+)['"]/g)) pending.push(path.posix.normalize(path.posix.join(path.posix.dirname(filename), match[1])));
   }
   execFileSync('npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund', '--prefix', dir, path.join(dir, pack.filename)], { stdio: ['ignore', 'pipe', 'pipe'] });
-  const installedRoot = path.join(dir, 'node_modules/db-mcp');
+  const installedRoot = path.join(dir, 'node_modules', pack.name);
   const installedEntry = path.join(installedRoot, 'dist/index.js');
   const schemaPath = 'dist/config/config.schema.json';
   assert.ok(paths.has(schemaPath));
@@ -73,7 +73,7 @@ try {
         DB_MCP_PACKAGE_SSH_PASSWORD: 'disposable-package-ssh-password' }, stdio: ['ignore', 'pipe', 'pipe'],
     });
   }
-  const { saveSetup } = await import(pathToFileURL(path.join(dir, 'node_modules/db-mcp/dist/config/setup.js')).href);
+  const { saveSetup } = await import(pathToFileURL(path.join(installedRoot, 'dist/config/setup.js')).href);
   const { parseV2Config } = await import(pathToFileURL(path.join(installedRoot, 'dist/config/v2.js')).href);
   const generated = await saveSetup({ engine: 'mysql', localDevelopment: true, host: 'localhost', port: 1,
     database: 'test', username: 'reader', password: 'disposable-package-test-value', objects: [{ name: 'reports', fields: ['name'] }] },
