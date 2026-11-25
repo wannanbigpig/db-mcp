@@ -1,0 +1,23 @@
+{
+  "$schema": "./dist/config/config.schema.json",
+  "version": 2,
+  "instance": {
+    "name": "reports-read",
+    "transport": "stdio",
+    "environment": "production"
+  },
+  "sources": [
+    {
+      "id": "reports",
+      "engine": "mysql",
+      "host": "mysql.internal.example",
+      "database": "reporting",
+      "username": "mcp_reader",
+      "passwordRef": "env:DB_MCP_REPORTS_PASSWORD",
+      "tls": {
+        "mode": "verify_identity"
+      },
+      "access": {}
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "./src",
+    "outDir": "../.legacy-dist"
+  },
+  "include": [
+    "src/**/*"
+  ],
+  "exclude": [
+    "../node_modules",
+    "../dist",
+    "../.legacy-dist"
+  ]
+}

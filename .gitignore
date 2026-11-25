@@ -6,4 +6,6 @@ dist/
 .DS_Store
 *.tsbuildinfo
 config.json
-
+config_local.json
+.aitasks/
+.legacy-dist/

@@ -1,100 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildSuccessResponse, configureResponseLimits } from '../utils/response.js';
-import { buildInsert, buildWhereClause, escapeIdentifier } from '../utils/mysql.js';
-import { ConfigLoader } from '../config/config-loader.js';
-import { SecurityManager, SecurityMode } from '../security/security-manager.js';
 import { withTimeout } from '../utils/async.js';
 import { ConcurrencyLimiter } from '../utils/concurrency.js';
-import { isConnectorHealthy } from '../utils/connection-status.js';
-import { RedisConnector } from '../connectors/redis.js';
-
-test('buildSuccessResponse serializes bigint and circular references', () => {
-  configureResponseLimits({ maxResultItems: 200, maxResponseBytes: 65536 });
-  const payload: { count: bigint; self?: unknown } = { count: 12n };
-  payload.self = payload;
-
-  const response = buildSuccessResponse(payload);
-  const text = response.content[0]?.text ?? '';
-
-  assert.match(text, /"count": "12"/);
-  assert.match(text, /\[Circular\]/);
-});
-
-test('buildSuccessResponse truncates oversized arrays', () => {
-  configureResponseLimits({ maxResultItems: 2, maxResponseBytes: 65536 });
-  const response = buildSuccessResponse({
-    rows: [
-      { id: 1, name: 'alpha' },
-      { id: 2, name: 'beta' },
-      { id: 3, name: 'gamma' },
-    ],
-  });
-  const text = response.content[0]?.text ?? '';
-
-  assert.match(text, /__truncated/);
-  configureResponseLimits({ maxResultItems: 200, maxResponseBytes: 65536 });
-});
-
-test('buildSuccessResponse truncates oversized payload text', () => {
-  configureResponseLimits({ maxResultItems: 200, maxResponseBytes: 80 });
-  const response = buildSuccessResponse({
-    message: 'x'.repeat(200),
-  });
-  const text = response.content[0]?.text ?? '';
-
-  assert.match(text, /响应已截断/);
-  configureResponseLimits({ maxResultItems: 200, maxResponseBytes: 65536 });
-});
-
-test('escapeIdentifier rejects unsafe mysql identifiers', () => {
-  assert.equal(escapeIdentifier('users', 'table'), '`users`');
-  assert.throws(() => escapeIdentifier('users;DROP TABLE users', 'table'));
-});
-
-test('mysql builders keep values parameterized', () => {
-  const insert = buildInsert({ id: 1, name: 'alice' }, 'data');
-  const where = buildWhereClause({ id: 1 }, 'where');
-
-  assert.equal(insert.columns, '`id`, `name`');
-  assert.equal(insert.placeholders, '?, ?');
-  assert.deepEqual(insert.values, [1, 'alice']);
-  assert.equal(where.clause, '`id` = ?');
-  assert.deepEqual(where.values, [1]);
-});
-
-test('ConfigLoader prefers env config and validates numeric env vars', () => {
-  process.env.MYSQL_HOST = '127.0.0.1';
-  process.env.MYSQL_PORT = '3307';
-  process.env.DB_MCP_MYSQL_SELECT_LIMIT = '321';
-  process.env.REDIS_HOST = '127.0.0.1';
-  process.env.REDIS_PORT = '6380';
-
-  try {
-    const config = ConfigLoader.loadFromEnv();
-
-    assert.equal(config.databases?.mysql?.port, 3307);
-    assert.equal(config.databases?.redis?.port, 6380);
-    assert.equal(config.runtime?.mysqlSelectLimit, 321);
-
-    process.env.REDIS_PORT = 'bad';
-    assert.throws(() => ConfigLoader.loadFromEnv(), /REDIS_PORT/);
-  } finally {
-    delete process.env.MYSQL_HOST;
-    delete process.env.MYSQL_PORT;
-    delete process.env.DB_MCP_MYSQL_SELECT_LIMIT;
-    delete process.env.REDIS_HOST;
-    delete process.env.REDIS_PORT;
-  }
-});
-
-test('SecurityManager blocks unsafe SQL in restricted mode', () => {
-  const manager = new SecurityManager(SecurityMode.RESTRICTED);
-
-  assert.equal(manager.isSQLAllowed('DELETE FROM users'), false);
-  assert.equal(manager.isSQLAllowed('DELETE FROM users WHERE id = 1'), true);
-  assert.equal(manager.isSQLAllowed('ALTER TABLE users ADD COLUMN age INT'), false);
-});
 
 test('withTimeout rejects slow operations', async () => {
   await assert.rejects(
@@ -124,279 +31,101 @@ test('ConcurrencyLimiter queues tasks beyond configured concurrency', async () =
   ]);
 
   assert.deepEqual(order, ['start-1', 'end-1', 'start-2', 'end-2']);
-  assert.deepEqual(limiter.snapshot(), { active: 0, queued: 0, maxConcurrent: 1 });
+  assert.deepEqual(limiter.snapshot(), { active: 0, queued: 0, maxConcurrent: 1, maxQueued: 100 });
 });
 
-test('isConnectorHealthy reflects connector health and guards failures', async () => {
-  assert.equal(await isConnectorHealthy(null), false);
-  assert.equal(await isConnectorHealthy({ testConnection: async () => true }), true);
-  assert.equal(await isConnectorHealthy({ testConnection: async () => false }), false);
-  assert.equal(
-    await isConnectorHealthy({
-      testConnection: async () => {
-        throw new Error('boom');
-      },
-    }),
-    false
-  );
+test('timed out work keeps its concurrency slot until the underlying operation ends', async () => {
+  const limiter = new ConcurrencyLimiter(1);
+  let finish!: () => void;
+  const operation = new Promise<void>((resolve) => { finish = resolve; });
+  const result = limiter.runWithTimeout(() => operation, 5, 'timeout');
+  await assert.rejects(result, /timeout/);
+  assert.equal(limiter.snapshot().active, 1);
+  finish();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(limiter.snapshot().active, 0);
 });
 
-test('RedisConnector exposes redis type and memory usage via sendCommand', async () => {
-  const connector = new RedisConnector({});
-  const calls: string[][] = [];
-
-  (
-    connector as unknown as {
-      client: {
-        sendCommand<T>(args: string[]): Promise<T>;
-      };
-    }
-  ).client = {
-    sendCommand: async <T>(args: string[]) => {
-      calls.push(args);
-      if (args[0] === 'TYPE') {
-        return 'hash' as T;
-      }
-      return 128 as T;
-    },
-  };
-
-  assert.equal(await connector.type('demo:key'), 'hash');
-  assert.equal(await connector.memoryUsage('demo:key'), 128);
-  assert.deepEqual(calls, [
-    ['TYPE', 'demo:key'],
-    ['MEMORY', 'USAGE', 'demo:key'],
-  ]);
+test('queued work times out without running and the queue rejects overflow', async () => {
+  const limiter = new ConcurrencyLimiter(1, 1);
+  let finish!: () => void;
+  const blocker = limiter.run(() => new Promise<void>((resolve) => { finish = resolve; }));
+  let ran = false;
+  const queued = limiter.runWithTimeout(async () => { ran = true; }, 5, 'queue timeout');
+  await assert.rejects(limiter.run(async () => undefined), /队列已满/);
+  await assert.rejects(queued, /queue timeout/);
+  assert.equal(ran, false);
+  assert.equal(limiter.snapshot().queued, 0);
+  finish();
+  await blocker;
 });
 
-test('RedisConnector ranks top memory keys in current redis db', async () => {
-  const connector = new RedisConnector({});
-  const calls: string[][] = [];
-  const memoryMap: Record<string, number | null> = {
-    'k:1': 128,
-    'k:2': 512,
-    'k:3': 256,
-  };
-  const typeMap: Record<string, string> = {
-    'k:2': 'hash',
-    'k:3': 'string',
-  };
-
-  (
-    connector as unknown as {
-      client: {
-        sendCommand<T>(args: string[]): Promise<T>;
-        scanIterator(args: { MATCH: string; COUNT: number }): AsyncIterable<string>;
-      };
-    }
-  ).client = {
-    sendCommand: async <T>(args: string[]) => {
-      calls.push(args);
-      if (args[0] === 'MEMORY') {
-        return memoryMap[args[2]] as T;
-      }
-      return typeMap[args[1]] as T;
-    },
-    async *scanIterator() {
-      yield 'k:1';
-      yield 'k:2';
-      yield 'k:3';
-    },
-  };
-
-  const result = await connector.topMemoryKeys({
-    pattern: 'k:*',
-    count: 2,
-    maxKeys: 3,
-    topN: 2,
-  });
-
-  assert.deepEqual(result, {
-    pattern: 'k:*',
-    scannedKeys: 3,
-    scanCapped: true,
-    topN: 2,
-    items: [
-      { key: 'k:2', bytes: 512, type: 'hash' },
-      { key: 'k:3', bytes: 256, type: 'string' },
-    ],
-  });
-  assert.deepEqual(calls, [
-    ['MEMORY', 'USAGE', 'k:1'],
-    ['MEMORY', 'USAGE', 'k:2'],
-    ['MEMORY', 'USAGE', 'k:3'],
-    ['TYPE', 'k:2'],
-    ['TYPE', 'k:3'],
-  ]);
+for (const full of ['instance', 'source'] as const) test('joint admission enforces the ' + full + ' queue limit and cancels both queue entries', async () => {
+  const global = new ConcurrencyLimiter(2, full === 'instance' ? 1 : 4);
+  const source = new ConcurrencyLimiter(1, full === 'source' ? 1 : 4);
+  const controller = new AbortController();
+  let finish = () => {}, started = () => {}, ran = false;
+  const entered = new Promise<void>(resolve => { started = resolve; });
+  const blocker = global.runCancellable(() => new Promise<void>(resolve => { finish = resolve; started(); }),
+    new AbortController().signal, 1000, source);
+  await entered;
+  const queued = global.runCancellable(async () => { ran = true; }, controller.signal, 1000, source);
+  const cancelled = assert.rejects(queued, /REQUEST_CANCELLED/);
+  try {
+    assert.equal(global.snapshot().active, 1); assert.equal(source.snapshot().active, 1);
+    assert.equal(global.snapshot().queued, 1); assert.equal(source.snapshot().queued, 1);
+    await assert.rejects(global.runCancellable(async () => {}, new AbortController().signal, 1000, source), /BUDGET_EXCEEDED/);
+    // An eligible source does not have to join the full pending queue.
+    await global.runCancellable(async () => {}, new AbortController().signal, 1000, new ConcurrencyLimiter(1));
+    controller.abort(); await cancelled;
+    assert.equal(global.snapshot().queued, 0); assert.equal(source.snapshot().queued, 0);
+  } finally { controller.abort(); finish(); await blocker; await cancelled; }
+  assert.equal(ran, false); assert.equal(global.snapshot().active, 0); assert.equal(source.snapshot().active, 0);
 });
 
-test('RedisConnector aggregates memory usage by prefixes', async () => {
-  const connector = new RedisConnector({});
-  const calls: string[][] = [];
-  const keysByPattern: Record<string, string[]> = {
-    'user:*': ['user:1', 'user:2'],
-    'session:*': ['session:1'],
-    'cache:*': ['cache:1', 'cache:2'],
-  };
-  const memoryMap: Record<string, number | null> = {
-    'user:1': 300,
-    'user:2': 700,
-    'session:1': 256,
-    'cache:1': 100,
-    'cache:2': 150,
-  };
-
-  (
-    connector as unknown as {
-      client: {
-        sendCommand<T>(args: string[]): Promise<T>;
-        scanIterator(args: { MATCH: string; COUNT: number }): AsyncIterable<string>;
-      };
-    }
-  ).client = {
-    sendCommand: async <T>(args: string[]) => {
-      calls.push(args);
-      return memoryMap[args[2]] as T;
-    },
-    async *scanIterator(args: { MATCH: string; COUNT: number }) {
-      for (const key of keysByPattern[args.MATCH] ?? []) {
-        yield key;
-      }
-    },
-  };
-
-  const result = await connector.memoryUsageByPrefixes({
-    prefixes: ['user:*', 'session:*', 'cache:*'],
-    count: 2,
-    maxKeysPerPrefix: 10,
-  });
-
-  assert.deepEqual(result, {
-    groups: [
-      {
-        pattern: 'user:*',
-        scannedKeys: 2,
-        scanCapped: false,
-        matchedKeys: 2,
-        totalBytes: 1000,
-        largestKey: 'user:2',
-        largestKeyBytes: 700,
-      },
-      {
-        pattern: 'session:*',
-        scannedKeys: 1,
-        scanCapped: false,
-        matchedKeys: 1,
-        totalBytes: 256,
-        largestKey: 'session:1',
-        largestKeyBytes: 256,
-      },
-      {
-        pattern: 'cache:*',
-        scannedKeys: 2,
-        scanCapped: false,
-        matchedKeys: 2,
-        totalBytes: 250,
-        largestKey: 'cache:2',
-        largestKeyBytes: 150,
-      },
-    ],
-  });
-  assert.deepEqual(
-    calls.slice().sort((a, b) => a[2].localeCompare(b[2])),
-    [
-    ['MEMORY', 'USAGE', 'user:1'],
-    ['MEMORY', 'USAGE', 'user:2'],
-    ['MEMORY', 'USAGE', 'session:1'],
-    ['MEMORY', 'USAGE', 'cache:1'],
-    ['MEMORY', 'USAGE', 'cache:2'],
-    ].sort((a, b) => a[2].localeCompare(b[2]))
-  );
+for (const occupied of ['instance', 'source'] as const) test('joint admission waits without reserving the other permit: ' + occupied, async () => {
+  const global = new ConcurrencyLimiter(1), source = new ConcurrencyLimiter(1);
+  const holder = occupied === 'instance' ? global : source;
+  const controller = new AbortController();
+  let finish = () => {}, started = () => {};
+  const entered = new Promise<void>(resolve => { started = resolve; });
+  const blocker = holder.run(() => new Promise<void>(resolve => { finish = resolve; started(); }));
+  await entered;
+  const queued = global.runCancellable(async () => 'completed', controller.signal, 1000, source);
+  try {
+    assert.equal((occupied === 'instance' ? source : global).snapshot().active, 0);
+    finish(); await blocker;
+    assert.equal(await queued, 'completed');
+    controller.abort(); // No resolved waiter's abort listener may remain attached.
+    assert.equal(global.snapshot().active, 0); assert.equal(source.snapshot().active, 0);
+    assert.equal(global.snapshot().queued, 0); assert.equal(source.snapshot().queued, 0);
+  } finally { finish(); await blocker; await queued; }
 });
 
-test('RedisConnector auto-discovers top memory prefixes', async () => {
-  const connector = new RedisConnector({});
-  const calls: string[][] = [];
-  const memoryMap: Record<string, number | null> = {
-    'user:1': 300,
-    'user:2': 700,
-    'session:1:data': 256,
-    'session:2:data': 128,
-    'cache:home': 900,
-    plainkey: 64,
-  };
+test('joint queue timeout removes both waiters without running later', async () => {
+  const global = new ConcurrencyLimiter(2), source = new ConcurrencyLimiter(1);
+  let finish = () => {}, started = () => {}, ran = false;
+  const entered = new Promise<void>(resolve => { started = resolve; });
+  const blocker = source.run(() => new Promise<void>(resolve => { finish = resolve; started(); }));
+  await entered;
+  try {
+    await assert.rejects(global.runCancellable(async () => { ran = true; }, new AbortController().signal, 5, source), /REQUEST_CANCELLED/);
+    assert.equal(global.snapshot().queued, 0); assert.equal(source.snapshot().queued, 0);
+  } finally { finish(); await blocker; }
+  assert.equal(ran, false); assert.equal(global.snapshot().active, 0);
+});
 
-  (
-    connector as unknown as {
-      client: {
-        sendCommand<T>(args: string[]): Promise<T>;
-        scanIterator(args: { MATCH: string; COUNT: number }): AsyncIterable<string>;
-      };
-    }
-  ).client = {
-    sendCommand: async <T>(args: string[]) => {
-      calls.push(args);
-      return memoryMap[args[2]] as T;
-    },
-    async *scanIterator() {
-      yield 'user:1';
-      yield 'user:2';
-      yield 'session:1:data';
-      yield 'session:2:data';
-      yield 'cache:home';
-      yield 'plainkey';
-    },
-  };
-
-  const result = await connector.autoPrefixMemoryUsage({
-    pattern: '*',
-    separator: ':',
-    depth: 1,
-    count: 3,
-    maxKeys: 10,
-    topN: 3,
-  });
-
-  assert.deepEqual(result, {
-    pattern: '*',
-    separator: ':',
-    depth: 1,
-    scannedKeys: 6,
-    scanCapped: false,
-    topN: 3,
-    groups: [
-      {
-        prefix: 'user:*',
-        matchedKeys: 2,
-        totalBytes: 1000,
-        largestKey: 'user:2',
-        largestKeyBytes: 700,
-      },
-      {
-        prefix: 'cache:*',
-        matchedKeys: 1,
-        totalBytes: 900,
-        largestKey: 'cache:home',
-        largestKeyBytes: 900,
-      },
-      {
-        prefix: 'session:*',
-        matchedKeys: 2,
-        totalBytes: 384,
-        largestKey: 'session:1:data',
-        largestKeyBytes: 256,
-      },
-    ],
-  });
-  assert.deepEqual(
-    calls.slice().sort((a, b) => a[2].localeCompare(b[2])),
-    [
-      ['MEMORY', 'USAGE', 'user:1'],
-      ['MEMORY', 'USAGE', 'user:2'],
-      ['MEMORY', 'USAGE', 'session:1:data'],
-      ['MEMORY', 'USAGE', 'session:2:data'],
-      ['MEMORY', 'USAGE', 'cache:home'],
-      ['MEMORY', 'USAGE', 'plainkey'],
-    ].sort((a, b) => a[2].localeCompare(b[2]))
-  );
+test('joint admission retains both active permits until cancelled work actually settles', async () => {
+  const global = new ConcurrencyLimiter(2), source = new ConcurrencyLimiter(1);
+  const controller = new AbortController();
+  let finish = () => {}, started = () => {};
+  const entered = new Promise<void>(resolve => { started = resolve; });
+  const work = global.runCancellable(() => new Promise<void>(resolve => { finish = resolve; started(); }), controller.signal, 1000, source);
+  await entered;
+  try {
+    controller.abort();
+    assert.equal(global.snapshot().active, 1); assert.equal(source.snapshot().active, 1);
+    await assert.rejects(global.runCancellable(async () => {}, new AbortController().signal, 5, source), /REQUEST_CANCELLED/);
+  } finally { finish(); await work; }
+  assert.equal(global.snapshot().active, 0); assert.equal(source.snapshot().active, 0);
 });

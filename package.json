@@ -1,15 +1,45 @@
 {
   "name": "db-mcp",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "MCP server for connecting and querying MySQL, Redis, and MongoDB databases",
   "main": "dist/index.js",
   "type": "module",
+  "bin": {
+    "db-mcp": "dist/index.js"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "files": [
+    "dist/index.*",
+    "dist/runtime/",
+    "dist/config/v2.*",
+    "dist/config/secrets.*",
+    "dist/config/setup.*",
+    "dist/utils/concurrency.*",
+    "dist/utils/async.*",
+    "config.example.json",
+    "dist/config/config.schema.json",
+    "examples/config.ssh.example.json",
+    "examples/config.write.example.json",
+    "README.md",
+    "README.en.md",
+    "SECURITY_REFACTOR_PLAN.md",
+    "docs/"
+  ],
   "scripts": {
-    "build": "tsc",
+    "build": "node scripts/build.mjs",
+    "setup": "npm run build && node dist/index.js --setup",
     "start": "node dist/index.js",
     "dev": "tsx src/index.ts",
     "watch": "tsc --watch",
-    "test": "npm run build && node --test dist/tests/*.test.js"
+    "test": "npm run test:current && npm run test:legacy",
+    "test:integration": "npm run build && DB_MCP_DOCKER_TESTS=1 node --test dist/tests/integration.test.js dist/tests/write-integration.test.js",
+    "verify:artifact": "npm run build && node scripts/verify-artifact.mjs",
+    "test:current": "npm run build && node --test dist/tests/*.test.js",
+    "test:legacy": "tsc -p legacy/tsconfig.json && node --test .legacy-dist/tests/*.test.js",
+    "schema:check": "node scripts/generate-config-schema.mjs --check",
+    "schema:generate": "npm run build"
   },
   "keywords": [
     "mcp",
@@ -22,15 +52,19 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^0.5.0",
-    "mysql2": "^3.9.0",
-    "redis": "^4.6.13",
-    "mongodb": "^6.3.0",
-    "dotenv": "^16.4.5"
+    "@modelcontextprotocol/sdk": "1.32.2",
+    "mongodb": "6.21.0",
+    "mongodb-connection-string-url": "3.0.2",
+    "mysql2": "3.24.5",
+    "redis": "4.7.1",
+    "ssh2": "1.17.0",
+    "zod": "4.6.7"
   },
   "devDependencies": {
-    "@types/node": "^20.11.0",
-    "tsx": "^4.7.0",
-    "typescript": "^5.3.3"
+    "@types/node": "20.19.25",
+    "@types/ssh2": "1.15.6",
+    "dotenv": "16.4.5",
+    "tsx": "4.20.6",
+    "typescript": "5.9.3"
   }
 }
